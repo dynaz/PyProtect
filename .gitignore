@@ -72,6 +72,9 @@ protected_*/
 *_obfuscated.py
 *_bound.py
 *_protected.py
+dist/
+custom*/
+*.pyc
 
 # Temporary files
 *.tmp

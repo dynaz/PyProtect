@@ -256,7 +256,7 @@ We welcome contributions! Please see our contributing guidelines:
 
 ### Development Setup
 ```bash
-git clone https://github.com/your-repo/pyprotect.git
+git clone https://github.com/dynaz/PyProtect
 cd pyprotect
 python3 -m pip install -r requirements-dev.txt
 python3 -m pytest tests/
