@@ -3,6 +3,7 @@
 ![PyProtect Logo](https://img.shields.io/badge/PyProtect-Advanced%20Obfuscation-blue?style=for-the-badge)
 ![Python](https://img.shields.io/badge/Python-3.6+-green?style=flat-square)
 ![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-%23FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/dynaz)
 
 PyProtect is a comprehensive Python code obfuscation tool with machine ID binding, designed to protect your Python applications from reverse engineering and unauthorized distribution.
 
@@ -304,6 +305,13 @@ For commercial applications requiring advanced features:
 For enterprise deployments and custom requirements:
 - Email: dynaz@mac.com
 - Enterprise licensing: dynaz@mac.com
+
+### Support the Project
+If you find PyProtect helpful, consider supporting the development:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-%23FFDD00?style=flat-square&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/dynaz)
+
+Your support helps maintain and improve this open-source project! ☕
 
 ---
 
