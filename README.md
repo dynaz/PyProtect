@@ -101,6 +101,7 @@ python3 pyprotect.py -i INPUT [-o OUTPUT] [OPTIONS]
 | `-i, --input INPUT` | Input file or directory | Required |
 | `-o, --output OUTPUT` | Output file or directory | `/dist/` |
 | `-m, --machine-id` | Display current machine ID | - |
+| `-c, --check-license DIR` | Check license validity in directory | Current dir |
 | `--bind-machine` | Bind code to current machine hardware | Disabled |
 | `--expiration DAYS` | License expiration in days | 365 |
 
@@ -137,7 +138,17 @@ python3 pyprotect.py -m
 # Output: Machine ID: 0a3a756bffd5fe563cb9b9ec3e5e17fb
 ```
 
-### Example 5: Trial Version (30 days)
+### Example 5: Check License Status
+```bash
+# Check license validity in current directory
+python3 pyprotect.py -c
+
+# Check license in specific directory
+python3 pyprotect.py -c /path/to/protected/app
+# Shows: ✅ VALID - License valid, ✅ Machine ID matches
+```
+
+### Example 6: Trial Version (30 days)
 ```bash
 # Create time-limited trial version
 python3 pyprotect.py -i software.py -o trial_version.py --bind-machine --expiration 30
@@ -339,6 +350,9 @@ python3 -c "from pyprotect import verify_license; print('License valid!')"
 
 # View machine ID (alternative method)
 python3 pyprotect.py -m
+
+# Check license validity
+python3 pyprotect.py -c /path/to/protected/app
 ```
 
 ---

@@ -74,6 +74,80 @@ def get_machine_id():
 
     return machine_id
 
+def check_license_status(directory):
+    """Check license status in the specified directory"""
+    print("🔍 Checking License Status:")
+    print("="*50)
+
+    license_dir = Path(directory)
+
+    if not license_dir.exists():
+        print(f"❌ Directory not found: {directory}")
+        return
+
+    # Look for license files
+    license_files = []
+    license_files.extend(license_dir.glob("*.license"))
+    license_files.extend(license_dir.glob("project.license"))
+
+    if not license_files:
+        print(f"❌ No license files found in: {directory}")
+        print("Looked for: *.license, project.license")
+        return
+
+    print(f"Found {len(license_files)} license file(s):")
+    current_machine_id = get_machine_id()
+
+    for license_file in license_files:
+        print(f"\n📄 License File: {license_file.name}")
+        print("-" * 30)
+
+        try:
+            with open(license_file, 'r') as f:
+                content = f.read().strip()
+
+            lines = content.split('\n')
+            license_info = {}
+
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    license_info[key.strip()] = value.strip()
+
+            # Extract license data
+            machine_id = license_info.get('Machine ID', 'Unknown')
+            license_key = license_info.get('License Key', 'Unknown')
+            expires_str = license_info.get('Expires', 'Unknown')
+            protected_date = license_info.get('Protected', 'Unknown')
+
+            print(f"Machine ID: {machine_id}")
+            print(f"License Key: {license_key}")
+            print(f"Expires: {expires_str}")
+            print(f"Protected: {protected_date}")
+
+            # Validate license
+            if license_key and license_key != 'Unknown':
+                is_valid, message = verify_license_key(license_key)
+                status = "✅ VALID" if is_valid else "❌ INVALID"
+                print(f"Status: {status} - {message}")
+
+                # Additional checks
+                if machine_id == current_machine_id:
+                    print("✅ Machine ID matches current machine")
+                else:
+                    print("⚠️  Machine ID does not match current machine")
+                    print(f"   License Machine: {machine_id}")
+                    print(f"   Current Machine: {current_machine_id}")
+
+            else:
+                print("❌ Invalid license key format")
+
+        except Exception as e:
+            print(f"❌ Error reading license file: {e}")
+
+    print("\n" + "="*50)
+    print("💡 Tip: Use 'python3 pyprotect.py -m' to see your current machine ID")
+
 def generate_license_key(machine_id, expiration_days=365):
     """Generate a license key for the machine"""
     expiration = int(time.time()) + (expiration_days * 24 * 60 * 60)
@@ -474,6 +548,8 @@ if __name__ == "__main__":
                        help="Output obfuscated file or directory (default: /dist/filename or /dist/inputdir)")
     parser.add_argument("-m", "--machine-id", action="store_true",
                        help="Display current machine ID and exit")
+    parser.add_argument("-c", "--check-license", nargs='?', const=".",
+                       help="Check license validity in directory (default: current dir)")
     parser.add_argument("--bind-machine", action="store_true",
                        help="Bind obfuscated code to current machine")
     parser.add_argument("--expiration", type=int, default=365,
@@ -491,6 +567,11 @@ if __name__ == "__main__":
         print()
         print("This ID will be used for machine binding.")
         print("Copy this ID if you need to manually configure licensing.")
+        sys.exit(0)
+
+    # Handle license checking
+    if args.check_license:
+        check_license_status(args.check_license)
         sys.exit(0)
 
     # Validate input is provided when not using machine-id flag
