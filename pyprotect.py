@@ -468,16 +468,36 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="PyProtect - Python Obfuscator with Machine ID Binding")
-    parser.add_argument("-i", "--input", required=True,
-                       help="Input Python file or directory")
+    parser.add_argument("-i", "--input",
+                       help="Input Python file or directory (not needed with -m)")
     parser.add_argument("-o", "--output", default="/dist",
                        help="Output obfuscated file or directory (default: /dist/filename or /dist/inputdir)")
+    parser.add_argument("-m", "--machine-id", action="store_true",
+                       help="Display current machine ID and exit")
     parser.add_argument("--bind-machine", action="store_true",
                        help="Bind obfuscated code to current machine")
     parser.add_argument("--expiration", type=int, default=365,
                        help="License expiration in days (default: 365)")
 
     args = parser.parse_args()
+
+    # Handle machine ID display
+    if args.machine_id:
+        machine_id = get_machine_id()
+        print("🔍 Current Machine ID:")
+        print("="*50)
+        print(f"Machine ID: {machine_id}")
+        print(f"Length: {len(machine_id)} characters")
+        print()
+        print("This ID will be used for machine binding.")
+        print("Copy this ID if you need to manually configure licensing.")
+        sys.exit(0)
+
+    # Validate input is provided when not using machine-id flag
+    if not args.input:
+        print("❌ Error: Input file or directory is required (use -i flag)")
+        print("Run 'python3 pyprotect.py --help' for usage information")
+        sys.exit(1)
 
     input_path = Path(args.input)
 

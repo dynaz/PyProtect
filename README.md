@@ -56,7 +56,7 @@ pip install pathlib2  # For Python < 3.4 (rarely needed)
 ### Download PyProtect
 ```bash
 # Clone or download the PyProtect files
-git clone https://github.com/your-repo/pyprotect.git
+git clone https://github.com/dynaz/PyProtect.git
 cd pyprotect
 ```
 
@@ -97,9 +97,11 @@ python3 pyprotect.py -i INPUT [-o OUTPUT] [OPTIONS]
 
 | Option | Description | Default |
 |--------|-------------|---------|
+| `-i, --input INPUT` | Input file or directory | Required |
+| `-o, --output OUTPUT` | Output file or directory | `/dist/` |
+| `-m, --machine-id` | Display current machine ID | - |
 | `--bind-machine` | Bind code to current machine hardware | Disabled |
 | `--expiration DAYS` | License expiration in days | 365 |
-| `--help` | Show help message | - |
 
 ## 💡 Examples
 
@@ -127,7 +129,14 @@ python3 pyprotect.py -i my_django_project/ --bind-machine
 python3 pyprotect.py -i my_django_project/ -o protected_project/ --bind-machine
 ```
 
-### Example 4: Trial Version (30 days)
+### Example 4: Check Machine ID
+```bash
+# Display current machine ID for licensing
+python3 pyprotect.py -m
+# Output: Machine ID: 0a3a756bffd5fe563cb9b9ec3e5e17fb
+```
+
+### Example 5: Trial Version (30 days)
 ```bash
 # Create time-limited trial version
 python3 pyprotect.py -i software.py -o trial_version.py --bind-machine --expiration 30
@@ -320,8 +329,8 @@ python3 protected.py
 # Check license status
 python3 -c "from pyprotect import verify_license; print('License valid!')"
 
-# View machine ID
-python3 -c "from pyprotect import get_machine_id; print('ID:', get_machine_id())"
+# View machine ID (alternative method)
+python3 pyprotect.py -m
 ```
 
 ---
