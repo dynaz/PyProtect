@@ -36,6 +36,12 @@ PyProtect is a comprehensive Python code obfuscation tool with machine ID bindin
 ## 📋 Table of Contents
 
 - [Installation](#installation)
+  - [Quick Install (Recommended)](#quick-install-recommended)
+  - [Manual Installation](#manual-installation)
+  - [Docker Installation](#docker-installation)
+  - [Development Installation](#development-installation)
+  - [Advanced Installation](#advanced-installation)
+  - [Post-Installation](#post-installation)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
 - [Command Line Options](#command-line-options)
@@ -49,33 +55,175 @@ PyProtect is a comprehensive Python code obfuscation tool with machine ID bindin
 
 ## 🛠️ Installation
 
-### Prerequisites
-- Python 3.6 or higher
-- pip package manager
+Choose one of the installation methods below based on your needs.
 
-### Install Dependencies
-```bash
-# No external dependencies required for basic functionality
-# For enhanced features, you may need:
-pip install pathlib2  # For Python < 3.4 (rarely needed)
-```
+### 📋 Prerequisites
+- **Python 3.6 or higher** (3.9+ recommended for best performance)
+- **pip package manager**
+- **Git** (for cloning the repository)
+- **sudo/admin privileges** (for system-wide installation)
 
-### Download PyProtect
+---
+
+## 🚀 Quick Install (Recommended)
+
+### One-Command Installation
 ```bash
-# Clone or download the PyProtect files
+# Clone and install PyProtect with standalone command
 git clone https://github.com/dynaz/PyProtect.git
 cd PyProtect
-
-# Run the installer (sets up standalone 'pyprotect' command)
 ./install.sh
 ```
 
 ### Verify Installation
 ```bash
-# Test that pyprotect command is available
 pyprotect --help
+# Should display: PyProtect - Python Obfuscator with Machine ID Binding
+```
 
-# Should show: PyProtect - Python Obfuscator with Machine ID Binding
+---
+
+## 📦 Manual Installation
+
+### Step 1: Download
+```bash
+# Clone the repository
+git clone https://github.com/dynaz/PyProtect.git
+cd PyProtect
+```
+
+### Step 2: Make Executable
+```bash
+# Make the script executable
+chmod +x pyprotect.py
+```
+
+### Step 3: System Integration (Optional)
+```bash
+# Create global symlink (requires sudo)
+sudo ln -sf "$(pwd)/pyprotect.py" /usr/local/bin/pyprotect
+
+# Or add to your PATH
+export PATH="$PATH:$(pwd)"
+```
+
+### Step 4: Verify
+```bash
+# Test direct execution
+./pyprotect.py --help
+
+# Test global command (if symlink created)
+pyprotect --help
+```
+
+---
+
+## 🐳 Docker Installation
+
+### Build Docker Image
+```bash
+git clone https://github.com/dynaz/PyProtect.git
+cd PyProtect
+
+# Build the image
+docker build -t pyprotect .
+
+# Run PyProtect in container
+docker run -v $(pwd):/workspace pyprotect --help
+```
+
+### Use Pre-built Image
+```bash
+# Pull and run
+docker run -it dynaz/pyprotect --help
+```
+
+---
+
+## 🧪 Development Installation
+
+### For Contributors
+```bash
+# Clone repository
+git clone https://github.com/dynaz/PyProtect.git
+cd PyProtect
+
+# Set up virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Run tests
+python -m pytest tests/
+
+# Make executable
+chmod +x pyprotect.py
+```
+
+---
+
+## 🔧 Advanced Installation
+
+### Custom Installation Path
+```bash
+# Install to custom location
+PYPROTECT_HOME="$HOME/.local/pyprotect"
+mkdir -p "$PYPROTECT_HOME"
+cp -r PyProtect/* "$PYPROTECT_HOME/"
+chmod +x "$PYPROTECT_HOME/pyprotect.py"
+
+# Add to PATH in your shell profile
+echo "export PATH=\"\$PATH:$PYPROTECT_HOME\"" >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Portable Installation (USB/External Drive)
+```bash
+# Copy to external drive
+EXTERNAL_DRIVE="/mnt/external"
+cp -r PyProtect "$EXTERNAL_DRIVE/"
+cd "$EXTERNAL_DRIVE/PyProtect"
+
+# Run directly
+python3 pyprotect.py --help
+```
+
+---
+
+## ✅ Post-Installation
+
+### Test Your Installation
+```bash
+# Basic functionality test
+pyprotect -m  # Should show your machine ID
+
+# Obfuscation test
+pyprotect -i examples/demo.py  # Should create /dist/demo.py
+
+# License check test
+pyprotect -c  # Should scan for license files
+```
+
+### Troubleshooting Installation
+```bash
+# If pyprotect command not found
+which pyprotect  # Check if in PATH
+ls -la /usr/local/bin/pyprotect  # Check symlink
+
+# Test direct execution
+./pyprotect.py --help
+
+# Check permissions
+ls -la pyprotect.py
+```
+
+### Upgrade PyProtect
+```bash
+cd PyProtect
+git pull origin main
+./install.sh  # Re-run installer
 ```
 
 ## 🚀 Quick Start
