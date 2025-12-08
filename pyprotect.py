@@ -451,8 +451,12 @@ def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=
         output_code = runtime_code.replace('# Obfuscated code will be inserted here',
                                          "# Obfuscated AST (requires Python 3.9+ for ast.unparse)\n" + source)
 
+    # Ensure output directory exists
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
     # Write output
-    with open(output_file, 'w') as f:
+    with open(output_file, 'w', encoding='utf-8') as f:
         f.write(output_code)
 
     print(f"✅ Obfuscated {len(obfuscator.var_map)} variables")
@@ -464,8 +468,10 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="PyProtect - Python Obfuscator with Machine ID Binding")
-    parser.add_argument("input", help="Input Python file or directory")
-    parser.add_argument("output", help="Output obfuscated file or directory")
+    parser.add_argument("-i", "--input", required=True,
+                       help="Input Python file or directory")
+    parser.add_argument("-o", "--output", default="dist",
+                       help="Output obfuscated file or directory (default: dist)")
     parser.add_argument("--bind-machine", action="store_true",
                        help="Bind obfuscated code to current machine")
     parser.add_argument("--expiration", type=int, default=365,
@@ -474,11 +480,21 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     input_path = Path(args.input)
-    output_path = Path(args.output)
 
     if not input_path.exists():
         print(f"❌ Input path not found: {args.input}")
         sys.exit(1)
+
+    # Determine output path
+    if args.output == "dist":
+        if input_path.is_dir():
+            # Directory input -> use dist as directory name
+            output_path = Path("dist")
+        else:
+            # File input -> create dist/filename
+            output_path = Path("dist") / input_path.name
+    else:
+        output_path = Path(args.output)
 
     try:
         if input_path.is_dir():
@@ -486,7 +502,7 @@ if __name__ == "__main__":
             print("🏗️  Directory obfuscation mode")
             print("="*50)
             success = obfuscate_directory(
-                args.input, args.output,
+                str(input_path), str(output_path),
                 bind_machine=args.bind_machine,
                 expiration_days=args.expiration
             )
@@ -505,10 +521,10 @@ if __name__ == "__main__":
             # Single file mode
             print("📄 Single file obfuscation mode")
             print("="*50)
-            obfuscate_file(args.input, args.output,
+            obfuscate_file(str(input_path), str(output_path),
                           bind_machine=args.bind_machine,
                           expiration_days=args.expiration)
-            print(f"\n✅ File obfuscation complete: {args.output}")
+            print(f"\n✅ File obfuscation complete: {output_path}")
 
             if args.bind_machine:
                 print("\n⚠️  WARNING: This code is now bound to the current machine!")

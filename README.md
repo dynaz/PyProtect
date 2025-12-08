@@ -69,7 +69,7 @@ python3 pyprotect.py my_script.py protected_script.py --bind-machine
 
 ### Protect an Entire Project
 ```bash
-python3 pyprotect.py my_project/ protected_project/ --bind-machine --expiration 365
+python3 pyprotect.py -i my_project/ -o protected_project/ --bind-machine --expiration 365
 ```
 
 ### Test Protection
@@ -82,7 +82,7 @@ python3 -c "import protected_script"
 
 ### Basic Syntax
 ```bash
-python3 pyprotect.py [INPUT] [OUTPUT] [OPTIONS]
+python3 pyprotect.py -i INPUT [-o OUTPUT] [OPTIONS]
 ```
 
 ### Input Types
@@ -90,8 +90,8 @@ python3 pyprotect.py [INPUT] [OUTPUT] [OPTIONS]
 - **Directory**: `myproject/` (processes all `.py` files recursively)
 
 ### Output Types
-- **Single File**: `protected.py`
-- **Directory**: `protected/` (maintains input structure)
+- **Single File**: `protected.py` (default: `dist/filename.py`)
+- **Directory**: `protected/` (default: `dist/`, maintains input structure)
 
 ## ⚙️ Command Line Options
 
@@ -105,26 +105,32 @@ python3 pyprotect.py [INPUT] [OUTPUT] [OPTIONS]
 
 ### Example 1: Basic File Protection
 ```bash
-# Protect a single Python file
-python3 pyprotect.py sensitive_code.py protected.py
+# Protect a single Python file (output to dist/filename.py)
+python3 pyprotect.py -i sensitive_code.py
+
+# Or specify custom output
+python3 pyprotect.py -i sensitive_code.py -o protected.py
 ```
 
 ### Example 2: Machine-Bound Protection
 ```bash
 # Protect and bind to current machine for 1 year
-python3 pyprotect.py app.py app_protected.py --bind-machine --expiration 365
+python3 pyprotect.py -i app.py -o app_protected.py --bind-machine --expiration 365
 ```
 
 ### Example 3: Project Protection
 ```bash
-# Protect entire Django/Flask project
-python3 pyprotect.py my_django_project/ protected_project/ --bind-machine
+# Protect entire Django/Flask project (output to dist/)
+python3 pyprotect.py -i my_django_project/ --bind-machine
+
+# Or specify custom output directory
+python3 pyprotect.py -i my_django_project/ -o protected_project/ --bind-machine
 ```
 
 ### Example 4: Trial Version (30 days)
 ```bash
 # Create time-limited trial version
-python3 pyprotect.py software.py trial_version.py --bind-machine --expiration 30
+python3 pyprotect.py -i software.py -o trial_version.py --bind-machine --expiration 30
 ```
 
 ## 🔒 Security Features
@@ -296,14 +302,14 @@ For enterprise deployments and custom requirements:
 
 ### Most Common Commands
 ```bash
-# Quick protection
-python3 pyprotect.py file.py protected.py --bind-machine
+# Quick protection (output to dist/)
+python3 pyprotect.py -i file.py --bind-machine
 
-# Project protection
-python3 pyprotect.py project/ protected/ --bind-machine
+# Project protection (output to dist/)
+python3 pyprotect.py -i project/ --bind-machine
 
 # Trial version (30 days)
-python3 pyprotect.py app.py trial.py --bind-machine --expiration 30
+python3 pyprotect.py -i app.py -o trial.py --bind-machine --expiration 30
 ```
 
 ### Verification
