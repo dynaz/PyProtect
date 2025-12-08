@@ -470,8 +470,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PyProtect - Python Obfuscator with Machine ID Binding")
     parser.add_argument("-i", "--input", required=True,
                        help="Input Python file or directory")
-    parser.add_argument("-o", "--output", default="dist",
-                       help="Output obfuscated file or directory (default: dist)")
+    parser.add_argument("-o", "--output", default="/dist",
+                       help="Output obfuscated file or directory (default: /dist/filename or /dist/inputdir)")
     parser.add_argument("--bind-machine", action="store_true",
                        help="Bind obfuscated code to current machine")
     parser.add_argument("--expiration", type=int, default=365,
@@ -486,13 +486,13 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Determine output path
-    if args.output == "dist":
+    if args.output == "/dist":
         if input_path.is_dir():
-            # Directory input -> use dist as directory name
-            output_path = Path("dist")
+            # Directory input -> create /dist/input_dirname
+            output_path = Path("/dist") / input_path.name
         else:
-            # File input -> create dist/filename
-            output_path = Path("dist") / input_path.name
+            # File input -> create /dist/filename
+            output_path = Path("/dist") / input_path.name
     else:
         output_path = Path(args.output)
 

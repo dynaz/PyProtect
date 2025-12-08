@@ -90,8 +90,8 @@ python3 pyprotect.py -i INPUT [-o OUTPUT] [OPTIONS]
 - **Directory**: `myproject/` (processes all `.py` files recursively)
 
 ### Output Types
-- **Single File**: `protected.py` (default: `dist/filename.py`)
-- **Directory**: `protected/` (default: `dist/`, maintains input structure)
+- **Single File**: `protected.py` (default: `/dist/filename.py`)
+- **Directory**: `protected/` (default: `/dist/inputname/`, maintains input structure)
 
 ## ⚙️ Command Line Options
 
@@ -105,7 +105,7 @@ python3 pyprotect.py -i INPUT [-o OUTPUT] [OPTIONS]
 
 ### Example 1: Basic File Protection
 ```bash
-# Protect a single Python file (output to dist/filename.py)
+# Protect a single Python file (output to /dist/filename.py)
 python3 pyprotect.py -i sensitive_code.py
 
 # Or specify custom output
@@ -293,8 +293,8 @@ For commercial applications requiring advanced features:
 
 ### Professional Support
 For enterprise deployments and custom requirements:
-- Email: support@pyprotect.com
-- Enterprise licensing: enterprise@pyprotect.com
+- Email: dynaz@mac.com
+- Enterprise licensing: dynaz@mac.com
 
 ---
 
