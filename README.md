@@ -65,12 +65,14 @@ cd pyprotect
 
 ### Protect a Single File
 ```bash
-python3 pyprotect.py my_script.py protected_script.py --bind-machine
+pyprotect -i my_script.py --bind-machine
+# Output: /dist/my_script.py (machine-bound)
 ```
 
 ### Protect an Entire Project
 ```bash
-python3 pyprotect.py -i my_project/ -o protected_project/ --bind-machine --expiration 365
+pyprotect -i my_project/ --bind-machine --expiration 365
+# Output: /dist/my_project/ (entire project protected)
 ```
 
 ### Test Protection
@@ -110,48 +112,48 @@ python3 pyprotect.py -i INPUT [-o OUTPUT] [OPTIONS]
 ### Example 1: Basic File Protection
 ```bash
 # Protect a single Python file (output to /dist/filename.py)
-python3 pyprotect.py -i sensitive_code.py
+pyprotect -i sensitive_code.py
 
 # Or specify custom output
-python3 pyprotect.py -i sensitive_code.py -o protected.py
+pyprotect -i sensitive_code.py -o protected.py
 ```
 
 ### Example 2: Machine-Bound Protection
 ```bash
 # Protect and bind to current machine for 1 year
-python3 pyprotect.py -i app.py -o app_protected.py --bind-machine --expiration 365
+pyprotect -i app.py -o app_protected.py --bind-machine --expiration 365
 ```
 
 ### Example 3: Project Protection
 ```bash
-# Protect entire Django/Flask project (output to dist/)
-python3 pyprotect.py -i my_django_project/ --bind-machine
+# Protect entire Django/Flask project (output to /dist/)
+pyprotect -i my_django_project/ --bind-machine
 
 # Or specify custom output directory
-python3 pyprotect.py -i my_django_project/ -o protected_project/ --bind-machine
+pyprotect -i my_django_project/ -o protected_project/ --bind-machine
 ```
 
 ### Example 4: Check Machine ID
 ```bash
 # Display current machine ID for licensing
-python3 pyprotect.py -m
+pyprotect -m
 # Output: Machine ID: 0a3a756bffd5fe563cb9b9ec3e5e17fb
 ```
 
 ### Example 5: Check License Status
 ```bash
 # Check license validity in current directory
-python3 pyprotect.py -c
+pyprotect -c
 
 # Check license in specific directory
-python3 pyprotect.py -c /path/to/protected/app
+pyprotect -c /path/to/protected/app
 # Shows: ✅ VALID - License valid, ✅ Machine ID matches
 ```
 
 ### Example 6: Trial Version (30 days)
 ```bash
 # Create time-limited trial version
-python3 pyprotect.py -i software.py -o trial_version.py --bind-machine --expiration 30
+pyprotect -i software.py -o trial_version.py --bind-machine --expiration 30
 ```
 
 ## 🔒 Security Features
@@ -330,14 +332,20 @@ Your support helps maintain and improve this open-source project! ☕
 
 ### Most Common Commands
 ```bash
-# Quick protection (output to dist/)
-python3 pyprotect.py -i file.py --bind-machine
+# Quick protection (output to /dist/)
+pyprotect -i file.py --bind-machine
 
-# Project protection (output to dist/)
-python3 pyprotect.py -i project/ --bind-machine
+# Project protection (output to /dist/)
+pyprotect -i project/ --bind-machine
 
 # Trial version (30 days)
-python3 pyprotect.py -i app.py -o trial.py --bind-machine --expiration 30
+pyprotect -i app.py -o trial.py --bind-machine --expiration 30
+
+# Check machine ID
+pyprotect -m
+
+# Check license status
+pyprotect -c
 ```
 
 ### Verification
@@ -349,10 +357,10 @@ python3 protected.py
 python3 -c "from pyprotect import verify_license; print('License valid!')"
 
 # View machine ID (alternative method)
-python3 pyprotect.py -m
+pyprotect -m
 
 # Check license validity
-python3 pyprotect.py -c /path/to/protected/app
+pyprotect -c /path/to/protected/app
 ```
 
 ---
