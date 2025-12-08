@@ -243,12 +243,12 @@ pyprotect -i my_project/ --bind-machine --expiration 365
 ### Test Protection
 ```bash
 # Test a protected script (after running pyprotect on it)
-python3 -c "import sys; sys.path.insert(0, '.'); import protected_script"
+python3 -c "import sys; sys.path.insert(0, '.'); import my_protected_script"
 # Should work on licensed machine, fail on others
 
 # Or test the examples in this repository:
 cd examples
-python3 -c "import demo_bound; print('Protected script works!')"
+python3 -c "import demo_bound; result = demo_bound.secret_function('super_secret_key_12345'); print('Protected script result:', result)"
 
 # Test protected project modules:
 cd protected_project
@@ -529,14 +529,22 @@ pyprotect -c
 # Test protected file
 python3 protected.py
 
-# Check license status
-python3 -c "from pyprotect import verify_license; print('License valid!')"
+# Test protected module (after creating one)
+python3 -c "import my_protected_module; print('Module works!')"
 
 # View machine ID (alternative method)
 pyprotect -m
 
-# Check license validity
-pyprotect -c /path/to/protected/app
+# Check license validity in current directory
+pyprotect -c
+
+# Check license in protected project
+pyprotect -c /dist/base
+
+# Test example protected scripts
+cd examples
+python3 -c "import demo_bound; result = demo_bound.secret_function('super_secret_key_12345'); print('Demo result:', result)"
+python3 -c "import test_protected; result = test_protected.secret_function('super_secret_key_12345'); print('Test result:', result)"
 ```
 
 ---
