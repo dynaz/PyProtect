@@ -242,8 +242,17 @@ pyprotect -i my_project/ --bind-machine --expiration 365
 
 ### Test Protection
 ```bash
-python3 -c "import protected_script"
+# Test a protected script (after running pyprotect on it)
+python3 -c "import sys; sys.path.insert(0, '.'); import protected_script"
 # Should work on licensed machine, fail on others
+
+# Or test the examples in this repository:
+cd examples
+python3 -c "import demo_bound; print('Protected script works!')"
+
+# Test protected project modules:
+cd protected_project
+python3 -c "from models.user import User; u = User('Test', 25); print('User:', u.name)"
 ```
 
 ## 📖 Usage
