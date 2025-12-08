@@ -27,6 +27,12 @@ PyProtect is a comprehensive Python code obfuscation tool with machine ID bindin
 - **Unified Licensing**: Single license file for entire projects
 - **Cross-Platform**: Works on Linux, Windows, and macOS
 
+### Command Line Interface
+- **Standalone Executable**: Run with `pyprotect` command after installation
+- **Professional CLI**: Standard flag-based interface (`-i`, `-o`, `-m`, `-c`)
+- **Easy Installation**: One-command setup with `./install.sh`
+- **System Integration**: Available globally after installation
+
 ## 📋 Table of Contents
 
 - [Installation](#installation)
@@ -58,7 +64,18 @@ pip install pathlib2  # For Python < 3.4 (rarely needed)
 ```bash
 # Clone or download the PyProtect files
 git clone https://github.com/dynaz/PyProtect.git
-cd pyprotect
+cd PyProtect
+
+# Run the installer (sets up standalone 'pyprotect' command)
+./install.sh
+```
+
+### Verify Installation
+```bash
+# Test that pyprotect command is available
+pyprotect --help
+
+# Should show: PyProtect - Python Obfuscator with Machine ID Binding
 ```
 
 ## 🚀 Quick Start
@@ -85,8 +102,10 @@ python3 -c "import protected_script"
 
 ### Basic Syntax
 ```bash
-python3 pyprotect.py -i INPUT [-o OUTPUT] [OPTIONS]
+pyprotect -i INPUT [-o OUTPUT] [OPTIONS]
 ```
+
+**Note**: After installation with `./install.sh`, you can use `pyprotect` from anywhere. Alternatively, use `python3 pyprotect.py` if running directly.
 
 ### Input Types
 - **Single File**: `script.py`
@@ -259,7 +278,7 @@ PyProtect/
 ### Debug Mode
 ```bash
 # Enable verbose output
-python3 pyprotect.py input.py output.py --verbose
+pyprotect -i input.py -o output.py --verbose
 ```
 
 ### Recovery
