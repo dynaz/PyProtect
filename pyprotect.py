@@ -227,12 +227,16 @@ class NameCollector(ast.NodeVisitor):
     def __init__(self):
         self.field_names = set()
         self.method_names = {}  # Map method names to whether they should be obfuscated
+        # IMPORTANT: Keep this list synchronized with Obfuscator.odoo_method_patterns
         self.odoo_method_patterns = [
             '_compute_', '_inverse_', '_search_', '_onchange_',
             '_depends_', '_constraint_', '_sql_constraint_',
             'action_', 'button_',
-            '_get_', '_set_', '_check_', '_prepare_',
+            'get_', '_get_', 'set_', '_set_',
+            '_check_', '_prepare_',
             '_create_', '_write_', '_update_', '_default_',
+            'show_', 'process_',
+            'execute', 'compile',  # Added execute and compile
         ]
     
     def visit_Assign(self, node):
@@ -275,6 +279,7 @@ class Obfuscator(ast.NodeTransformer):
         self.module_level_depth = 0  # Track if we're at module level
         self.public_names = set()  # Track public function/class names
         self.in_public_class = False  # Track if we're inside a public class
+        self.in_controller_class = False  # Track if we're inside a Controller class
         self.in_fstring = False  # Track if we're inside an f-string
         self.collected_methods = collected_methods or {}  # Pre-collected method names
         
@@ -312,14 +317,20 @@ class Obfuscator(ast.NodeTransformer):
             '_sql_constraint_', # SQL constraints
             'action_',    # action methods (often called from XML)
             'button_',    # button methods (called from XML)
-            '_get_',      # getter methods (often part of public API)
-            '_set_',      # setter methods (often part of public API)
+            'get_',       # getter methods (public API, can be overridden)
+            '_get_',      # private getter methods (often part of public API)
+            'set_',       # setter methods (public API, can be overridden)
+            '_set_',      # private setter methods (often part of public API)
             '_check_',    # validation methods
             '_prepare_',  # preparation methods
             '_create_',   # creation helper methods
             '_write_',    # write helper methods
             '_update_',   # update helper methods
             '_default_',  # default value methods
+            'show_',      # show methods (often used in wizards/transient models)
+            'process_',   # process methods (common in business logic)
+            'execute',    # execute methods (common for command execution)
+            'compile',    # compile methods
         ]
         
         # Odoo field names collected from first pass
@@ -327,10 +338,26 @@ class Obfuscator(ast.NodeTransformer):
         
         # Pre-populate func_map with methods that will be obfuscated
         # This handles forward references (method A calls method B defined later)
+        # IMPORTANT: Double-check preservation patterns to avoid obfuscating method calls
         for method_name, should_preserve in self.collected_methods.items():
             if not should_preserve:
-                # This method will be obfuscated, pre-assign it an obfuscated name
-                self.func_map[method_name] = self.generate_func_name()
+                # Double-check against Obfuscator's patterns (may differ from NameCollector's old state)
+                should_really_preserve = False
+                
+                # Check if method name matches any preservation pattern
+                for pattern in self.odoo_method_patterns:
+                    if pattern in method_name:
+                        should_really_preserve = True
+                        break
+                
+                # Check if it's in odoo_reserved
+                if method_name in self.odoo_reserved:
+                    should_really_preserve = True
+                
+                # Only add to func_map if it should truly be obfuscated
+                if not should_really_preserve:
+                    # This method will be obfuscated, pre-assign it an obfuscated name
+                    self.func_map[method_name] = self.generate_func_name()
 
     def generate_var_name(self):
         """Generate obfuscated variable name"""
@@ -448,9 +475,20 @@ class Obfuscator(ast.NodeTransformer):
             if node.name in self.func_map:
                 del self.func_map[node.name]
 
-        # Obfuscate argument names (skip 'self')
+        # Obfuscate argument names (skip 'self' and controller route params)
+        # Controller route parameters must match the URL pattern and should not be obfuscated
         for arg in node.args.args:
-            if arg.arg != 'self' and arg.arg not in self.var_map:
+            # Skip 'self'
+            if arg.arg == 'self':
+                continue
+            
+            # Skip parameters in controller methods (they're matched by URL routes)
+            if self.in_controller_class:
+                # Don't obfuscate parameters in controller methods
+                continue
+            
+            # Obfuscate other parameters
+            if arg.arg not in self.var_map:
                 self.var_map[arg.arg] = self.generate_var_name()
             arg.arg = self.var_map.get(arg.arg, arg.arg)
 
@@ -467,6 +505,17 @@ class Obfuscator(ast.NodeTransformer):
         """Obfuscate class names (preserve public API classes)"""
         should_obfuscate = True
         is_public_class = False
+        is_controller_class = False
+        
+        # Check if this is a Controller class (Odoo HTTP controllers)
+        # Controllers need special handling - their route parameter names must not be obfuscated
+        for base in node.bases:
+            if isinstance(base, ast.Attribute):
+                if base.attr == 'Controller':
+                    is_controller_class = True
+            elif isinstance(base, ast.Name):
+                if 'Controller' in base.id:
+                    is_controller_class = True
         
         # NEW: Skip public API classes at module level (don't start with _)
         # This preserves classes that can be imported: from module import ClassName
@@ -482,10 +531,13 @@ class Obfuscator(ast.NodeTransformer):
                 self.class_map[node.name] = self.generate_class_name()
             node.name = self.class_map[node.name]
 
-        # Track if we're in a public class
+        # Track if we're in a public class or controller class
         old_in_public_class = self.in_public_class
+        old_in_controller_class = self.in_controller_class
         if is_public_class:
             self.in_public_class = True
+        if is_controller_class:
+            self.in_controller_class = True
         
         # Increase depth before visiting class body
         self.module_level_depth += 1
@@ -496,6 +548,7 @@ class Obfuscator(ast.NodeTransformer):
         
         # Restore the previous state
         self.in_public_class = old_in_public_class
+        self.in_controller_class = old_in_controller_class
         
         return node
 
