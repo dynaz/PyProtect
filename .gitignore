@@ -83,3 +83,4 @@ custom*/
 *.tmp
 *.bak
 *.log
+.pypirc
