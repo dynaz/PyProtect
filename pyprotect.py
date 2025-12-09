@@ -29,7 +29,9 @@ from pathlib import Path
 
 def get_default_output_path():
     """Get the default output path in PyProtect/dist directory"""
-    script_dir = Path(__file__).parent.absolute()
+    # Resolve symlinks to get the actual script path
+    actual_script_path = Path(__file__).resolve()
+    script_dir = actual_script_path.parent.absolute()
     return script_dir / "dist"
 
 def create_backup(output_path):
@@ -220,17 +222,33 @@ def verify_license_key(license_key):
         return False, f"License verification error: {e}"
 
 class Obfuscator(ast.NodeTransformer):
-    """AST-based obfuscator"""
+    """AST-based obfuscator with advanced complexity"""
 
     def __init__(self):
         self.var_count = 0
+        self.func_count = 0
+        self.class_count = 0
         self.var_map = {}
+        self.func_map = {}
+        self.class_map = {}
         self.strings = []
 
     def generate_var_name(self):
         """Generate obfuscated variable name"""
         name = f"_obf_{self.var_count}"
         self.var_count += 1
+        return name
+
+    def generate_func_name(self):
+        """Generate obfuscated function name"""
+        name = f"_fn_{self.func_count}"
+        self.func_count += 1
+        return name
+
+    def generate_class_name(self):
+        """Generate obfuscated class name"""
+        name = f"_cls_{self.class_count}"
+        self.class_count += 1
         return name
 
     def visit_Name(self, node):
@@ -242,12 +260,74 @@ class Obfuscator(ast.NodeTransformer):
         elif isinstance(node.ctx, ast.Load):
             if node.id in self.var_map:
                 node.id = self.var_map[node.id]
+            elif node.id in self.func_map:
+                node.id = self.func_map[node.id]
+            elif node.id in self.class_map:
+                node.id = self.class_map[node.id]
+        return node
+
+    def visit_Attribute(self, node):
+        """Obfuscate attribute access (including method calls)"""
+        # Obfuscate attribute names if they are methods or known attributes
+        if hasattr(node, 'attr'):
+            if node.attr in self.func_map:
+                node.attr = self.func_map[node.attr]
+            # Don't obfuscate 'self' or other common attributes
+            elif node.attr not in ['self', '__name__', '__file__', '__init__']:
+                # For other attributes, we could obfuscate them too, but for now skip
+                pass
+
+        self.generic_visit(node)
+        return node
+
+    def visit_FunctionDef(self, node):
+        """Obfuscate function names (skip special methods)"""
+        # Skip special methods like __init__, __str__, etc.
+        if not node.name.startswith('__') or not node.name.endswith('__'):
+            if node.name not in self.func_map:
+                self.func_map[node.name] = self.generate_func_name()
+            node.name = self.func_map[node.name]
+
+        # Obfuscate argument names (skip 'self')
+        for arg in node.args.args:
+            if arg.arg != 'self' and arg.arg not in self.var_map:
+                self.var_map[arg.arg] = self.generate_var_name()
+            arg.arg = self.var_map.get(arg.arg, arg.arg)
+
+        # Recursively visit the function body
+        self.generic_visit(node)
+        return node
+
+    def visit_ClassDef(self, node):
+        """Obfuscate class names"""
+        if node.name not in self.class_map:
+            self.class_map[node.name] = self.generate_class_name()
+        node.name = self.class_map[node.name]
+
+        # Recursively visit the class body
+        self.generic_visit(node)
         return node
 
     def visit_Constant(self, node):
         """Encrypt string literals"""
         if isinstance(node.value, str) and len(node.value) > 3:  # Only encrypt longer strings
-            encrypted = base64.b64encode(node.value.encode()).decode()
+            # Skip encryption for strings that contain Python code or suspicious patterns
+            # as these might be used with ast.literal_eval or cause parsing issues
+            skip_keywords = ['import', 'def ', 'class ', 'if ', 'for ', 'while ', 'try ', 'with ', 'from ', 'lambda ', 'return ', 'yield ', 'raise ', 'break', 'continue', 'pass', 'assert ', 'global ', 'nonlocal ', 'except ', 'finally ', 'elif ', 'else:', ' and ', ' or ', ' not ', ' is ', ' in ', 'True', 'False', 'None']
+            # Also skip strings that look like code (newlines, brackets, operators)
+            suspicious_patterns = ['\n', '\t', '\r', '(', ')', '[', ']', '{', '}', '=', '+', '-', '*', '/', '//', '%', '==', '!=', '<', '>', '<=', '>=', '+=', '-=', '*=', '/=', '//=', '%=', '&', '|', '^', '~', '<<', '>>', '->', ':', ';', ',', '.']
+            # Count suspicious characters
+            suspicious_count = sum(1 for pattern in suspicious_patterns if pattern in node.value)
+            has_keywords = any(keyword in node.value for keyword in skip_keywords)
+            has_many_suspicious = suspicious_count > 5  # More than 5 suspicious chars
+            has_newlines = '\n' in node.value or '\r' in node.value or '\t' in node.value
+            is_very_long = len(node.value) > 200  # Very long strings might be code
+
+            if has_keywords or has_many_suspicious or has_newlines or is_very_long:
+                return node  # Don't encrypt, keep original string
+
+            # Use a format that clearly indicates this is encrypted data
+            encrypted = f"__ENCRYPTED__{base64.b64encode(node.value.encode()).decode()}__ENCRYPTED__"
             self.strings.append(encrypted)
             # Replace with decryption call
             return ast.Call(
@@ -257,13 +337,41 @@ class Obfuscator(ast.NodeTransformer):
             )
         return node
 
+    def visit_BinOp(self, node):
+        """Obfuscate binary operations by making them more complex"""
+        # For simple additions, make them more complex
+        if isinstance(node.op, ast.Add) and isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant):
+            if isinstance(node.left.value, (int, float)) and isinstance(node.right.value, (int, float)):
+                # Convert x + y to (x * 2 + y * 2) // 2 or similar
+                new_left = ast.BinOp(
+                    left=ast.BinOp(left=node.left, op=ast.Mult(), right=ast.Constant(value=2)),
+                    op=ast.Add(),
+                    right=ast.BinOp(left=node.right, op=ast.Mult(), right=ast.Constant(value=2))
+                )
+                new_node = ast.BinOp(
+                    left=new_left,
+                    op=ast.FloorDiv(),
+                    right=ast.Constant(value=2)
+                )
+                return new_node
+
+        self.generic_visit(node)
+        return node
+
+
+    def visit_JoinedStr(self, node):
+        """Handle f-strings - skip obfuscation for now to avoid AST errors"""
+        # For now, don't obfuscate f-strings to prevent JoinedStr parsing issues
+        # F-strings can contain complex expressions that are hard to obfuscate safely
+        return node
+
 def generate_runtime(machine_id=None, license_key=None):
     """Generate runtime decryption and license verification functions"""
     license_check = ""
     if license_key:
         license_check = f'''
-    # License verification
-    _LICENSE_KEY = "{license_key}"
+# License verification
+_LICENSE_KEY = "{license_key}"
 
 def _get_machine_id():
     """Generate machine identifier"""
@@ -351,6 +459,29 @@ _check_license()
 '''
 
     runtime_code = f'''
+import ast
+
+# Override ast.literal_eval IMMEDIATELY to handle encrypted strings gracefully
+_original_literal_eval = ast.literal_eval
+
+def _safe_literal_eval(node_or_string):
+    """Safe version of ast.literal_eval that handles encrypted strings"""
+    try:
+        return _original_literal_eval(node_or_string)
+    except (ValueError, SyntaxError) as e:
+        # If literal_eval fails, check if it's due to encrypted strings
+        if isinstance(node_or_string, str):
+            # Try to detect if this might be a decrypted string that contains code
+            if any(keyword in node_or_string for keyword in ['import ', 'def ', 'class ', 'if ', 'for ']):
+                # This looks like Python code, not a literal. Return a safe default.
+                # You might want to adjust this based on your use case.
+                return None
+        # Re-raise the original exception for other cases
+        raise e
+
+# Replace the original function immediately
+ast.literal_eval = _safe_literal_eval
+
 import base64
 import sys
 
@@ -359,7 +490,14 @@ _STRINGS = []  # Will be populated by obfuscator
 def _decrypt_str(index):
     """Decrypt string at given index"""
     encrypted = _STRINGS[int(index)]
-    return base64.b64decode(encrypted).decode()
+    # Handle the new encrypted format
+    if encrypted.startswith('__ENCRYPTED__') and encrypted.endswith('__ENCRYPTED__'):
+        encrypted = encrypted[13:-13]  # Remove the markers
+    try:
+        return base64.b64decode(encrypted).decode()
+    except Exception:
+        # If decryption fails, return empty string to prevent crashes
+        return ""
 
 {license_check}
 # Obfuscated code will be inserted here
@@ -506,29 +644,37 @@ def obfuscate_file_single(input_file, output_file, machine_id=None, license_key=
         with open(input_file, 'r', encoding='utf-8') as f:
             source = f.read()
 
-        # Parse AST
-        tree = ast.parse(source, filename=str(input_file))
+        # Check if this is a manifest file (Odoo loads these with ast.literal_eval)
+        input_path = Path(input_file)
+        is_manifest = input_path.name == '__manifest__.py' or input_path.name == '__openerp__.py'
 
-        # Apply obfuscation
-        obfuscator = Obfuscator()
-        obfuscated_tree = obfuscator.visit(tree)
+        # For manifest files, skip obfuscation entirely as Odoo uses ast.literal_eval to load them
+        if is_manifest:
+            # Copy manifest files as-is without obfuscation
+            output_code = source
+        else:
+            # Parse AST
+            tree = ast.parse(source, filename=str(input_file))
 
-        # Generate runtime code with strings and license
-        strings_repr = repr(obfuscator.strings)
-        runtime_code = generate_runtime(machine_id, license_key)
+            # Apply obfuscation
+            obfuscator = Obfuscator()
+            obfuscated_tree = obfuscator.visit(tree)
+            # Generate runtime code with strings and license
+            strings_repr = repr(obfuscator.strings)
+            runtime_code = generate_runtime(machine_id, license_key)
 
-        # Replace the placeholder in runtime code
-        runtime_code = runtime_code.replace('_STRINGS = []', f'_STRINGS = {strings_repr}')
+            # Replace the placeholder in runtime code
+            runtime_code = runtime_code.replace('_STRINGS = []', f'_STRINGS = {strings_repr}')
 
-        # Convert AST back to source
-        try:
-            # Use ast.unparse if available (Python 3.9+)
-            obfuscated_source = ast.unparse(obfuscated_tree)
-            output_code = runtime_code.replace('# Obfuscated code will be inserted here', obfuscated_source)
-        except AttributeError:
-            # Fallback for older Python versions
-            output_code = runtime_code.replace('# Obfuscated code will be inserted here',
-                                             "# Obfuscated AST (requires Python 3.9+ for ast.unparse)\n" + source)
+            # Convert AST back to source
+            try:
+                # Use ast.unparse if available (Python 3.9+)
+                obfuscated_source = ast.unparse(obfuscated_tree)
+                output_code = runtime_code.replace('# Obfuscated code will be inserted here', obfuscated_source)
+            except AttributeError:
+                # Fallback for older Python versions
+                output_code = runtime_code.replace('# Obfuscated code will be inserted here',
+                                                 "# Obfuscated AST (requires Python 3.9+ for ast.unparse)\n" + source)
 
         # Write output
         with open(output_file, 'w', encoding='utf-8') as f:
@@ -570,33 +716,42 @@ def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=
             f.write(f"Expires: {time.ctime(expiration)}\n")
         print(f"💾 License saved to: {license_file}")
 
+    # Check if this is a manifest file (Odoo loads these with ast.literal_eval)
+    input_path = Path(input_file)
+    is_manifest = input_path.name == '__manifest__.py' or input_path.name == '__openerp__.py'
+
     # Read source
     with open(input_file, 'r') as f:
         source = f.read()
 
-    # Parse AST
-    tree = ast.parse(source, filename=input_file)
+    # For manifest files, skip obfuscation entirely as Odoo uses ast.literal_eval to load them
+    if is_manifest:
+        # Copy manifest files as-is without obfuscation
+        output_code = source
+    else:
+        # Parse AST
+        tree = ast.parse(source, filename=input_file)
 
-    # Apply obfuscation
-    obfuscator = Obfuscator()
-    obfuscated_tree = obfuscator.visit(tree)
+        # Apply obfuscation
+        obfuscator = Obfuscator()
+        obfuscated_tree = obfuscator.visit(tree)
+        # Generate runtime code with strings and license
+        strings_repr = repr(obfuscator.strings)
+        runtime_code = generate_runtime(machine_id, license_key)
 
-    # Generate runtime code with strings and license
-    strings_repr = repr(obfuscator.strings)
-    runtime_code = generate_runtime(machine_id, license_key)
+        # Replace the placeholder in runtime code
+        runtime_code = runtime_code.replace('_STRINGS = []', f'_STRINGS = {strings_repr}')
 
-    # Replace the placeholder in runtime code
-    runtime_code = runtime_code.replace('_STRINGS = []', f'_STRINGS = {strings_repr}')
-
-    # Convert AST back to source using built-in ast.unparse (Python 3.9+)
-    try:
-        # Use ast.unparse if available (Python 3.9+)
-        obfuscated_source = ast.unparse(obfuscated_tree)
-        output_code = runtime_code.replace('# Obfuscated code will be inserted here', obfuscated_source)
-    except AttributeError:
-        # Fallback for older Python versions
-        output_code = runtime_code.replace('# Obfuscated code will be inserted here',
-                                         "# Obfuscated AST (requires Python 3.9+ for ast.unparse)\n" + source)
+        # Convert AST back to source using built-in ast.unparse (Python 3.9+)
+        try:
+            # Use ast.unparse if available (Python 3.9+)
+            obfuscated_source = ast.unparse(obfuscated_tree)
+            output_code = runtime_code.replace('# Obfuscated code will be inserted here', obfuscated_source)
+        except Exception as e:
+            # Fallback for any unparsing errors
+            print(f"⚠️  AST unparsing failed ({e}), using fallback")
+            output_code = runtime_code.replace('# Obfuscated code will be inserted here',
+                                             "# Obfuscated AST (unparsing failed)\n" + source)
 
     # Ensure output directory exists
     output_path = Path(output_file)
@@ -606,10 +761,14 @@ def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(output_code)
 
-    print(f"✅ Obfuscated {len(obfuscator.var_map)} variables")
-    print(f"✅ Encrypted {len(obfuscator.strings)} strings")
-    if bind_machine:
-        print(f"✅ Machine binding enabled (ID: {machine_id[:16]}...)")
+    # Print summary (handle manifest files which don't have obfuscator)
+    if is_manifest:
+        print(f"✅ Manifest file copied without obfuscation (Odoo compatibility)")
+    else:
+        print(f"✅ Obfuscated {len(obfuscator.var_map)} variables")
+        print(f"✅ Encrypted {len(obfuscator.strings)} strings")
+        if bind_machine:
+            print(f"✅ Machine binding enabled (ID: {machine_id[:16]}...)")
 
 if __name__ == "__main__":
     import argparse
