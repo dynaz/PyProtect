@@ -448,9 +448,44 @@ def _verify_license_key(license_key):
 
 def _check_license():
     """Verify license on startup"""
-    if not _verify_license_key(_LICENSE_KEY):
-        print("ERROR: Invalid or expired license!")
-        print("This software is licensed to run on a different machine.")
+    import os
+    from pathlib import Path
+    
+    # Try to find license file (in same directory as this file, or parent for project licenses)
+    current_dir = Path(__file__).parent
+    license_files = [
+        current_dir / "project.license",  # Project license
+        Path(str(__file__) + ".license"),  # Individual file license
+    ]
+    
+    license_found = False
+    for license_file in license_files:
+        if license_file.exists():
+            license_found = True
+            try:
+                with open(license_file, 'r') as f:
+                    content = f.read()
+                    # Extract license key from file
+                    for line in content.split('\\n'):
+                        if line.startswith('License Key:'):
+                            file_license_key = line.split(':', 1)[1].strip()
+                            if not _verify_license_key(file_license_key):
+                                print("ERROR: Invalid or expired license!")
+                                print("This software is licensed to run on a different machine.")
+                                import sys
+                                sys.exit(1)
+                            # License is valid
+                            return
+            except Exception as e:
+                print("ERROR: Failed to read license file: " + str(e))
+                import sys
+                sys.exit(1)
+    
+    # If no license file found
+    if not license_found:
+        print("ERROR: License file not found!")
+        print("This software requires a valid license file to run.")
+        print("Expected license file at: " + str(license_files[0]) + " or " + str(license_files[1]))
         import sys
         sys.exit(1)
 

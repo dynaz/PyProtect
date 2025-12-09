@@ -37,8 +37,8 @@ setup(
     python_requires=">=3.6",
     keywords="obfuscation security protection python code",
     project_urls={
-        "Bug Reports": "https://github.com/your-repo/pyprotect/issues",
-        "Source": "https://github.com/your-repo/pyprotect",
+        "Bug Reports": "https://github.com/dynaz/PyProtect/issues",
+        "Source": "https://github.com/dynaz/PyProtect",
         "Documentation": "https://pyprotect.readthedocs.io/",
     },
 )
