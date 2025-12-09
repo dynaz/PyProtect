@@ -63,11 +63,15 @@ Choose one of the installation methods below based on your needs.
 - **Git** (for cloning the repository)
 - **sudo/admin privileges** (for system-wide installation)
 
+> 💡 **Windows Users**: See [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md) for detailed Windows-specific installation instructions and troubleshooting.
+
 ---
 
 ## 🚀 Quick Install (Recommended)
 
 ### One-Command Installation
+
+#### Linux/macOS
 ```bash
 # Clone and install PyProtect with standalone command
 git clone https://github.com/dynaz/PyProtect.git
@@ -75,8 +79,25 @@ cd PyProtect
 ./install.sh
 ```
 
+#### Windows (PowerShell - Recommended)
+```powershell
+# Clone and install PyProtect with standalone command
+git clone https://github.com/dynaz/PyProtect.git
+cd PyProtect
+.\install.ps1
+```
+
+#### Windows (Command Prompt)
+```cmd
+# Clone and install PyProtect with standalone command
+git clone https://github.com/dynaz/PyProtect.git
+cd PyProtect
+install.bat
+```
+
 ### Verify Installation
 ```bash
+# Linux/macOS/Windows (after restarting terminal)
 pyprotect --help
 # Should display: PyProtect - Python Obfuscator with Machine ID Binding
 ```
@@ -92,13 +113,15 @@ git clone https://github.com/dynaz/PyProtect.git
 cd PyProtect
 ```
 
-### Step 2: Make Executable
+### Step 2: Make Executable (Linux/macOS only)
 ```bash
 # Make the script executable
 chmod +x pyprotect.py
 ```
 
 ### Step 3: System Integration (Optional)
+
+#### Linux/macOS
 ```bash
 # Create global symlink (requires sudo)
 sudo ln -sf "$(pwd)/pyprotect.py" /usr/local/bin/pyprotect
@@ -107,12 +130,37 @@ sudo ln -sf "$(pwd)/pyprotect.py" /usr/local/bin/pyprotect
 export PATH="$PATH:$(pwd)"
 ```
 
+#### Windows (PowerShell - Run as Administrator)
+```powershell
+# Create wrapper batch file
+$scriptDir = Get-Location
+$wrapperContent = "@echo off`npython `"$scriptDir\pyprotect.py`" %*"
+$wrapperContent | Out-File -FilePath "$scriptDir\pyprotect.bat" -Encoding ASCII
+
+# Add to user PATH
+$currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+[Environment]::SetEnvironmentVariable("Path", "$currentPath;$scriptDir", "User")
+```
+
+#### Windows (Command Prompt - Run as Administrator)
+```cmd
+# Create wrapper batch file
+echo @echo off > pyprotect.bat
+echo python "%CD%\pyprotect.py" %%* >> pyprotect.bat
+
+# Add to PATH (restart terminal after)
+setx PATH "%PATH%;%CD%"
+```
+
 ### Step 4: Verify
 ```bash
-# Test direct execution
+# Test direct execution (Linux/macOS)
 ./pyprotect.py --help
 
-# Test global command (if symlink created)
+# Test direct execution (Windows)
+python pyprotect.py --help
+
+# Test global command (after PATH setup and terminal restart)
 pyprotect --help
 ```
 
@@ -143,6 +191,8 @@ docker run -it dynaz/pyprotect --help
 ## 🧪 Development Installation
 
 ### For Contributors
+
+#### Linux/macOS
 ```bash
 # Clone repository
 git clone https://github.com/dynaz/PyProtect.git
@@ -150,7 +200,7 @@ cd PyProtect
 
 # Set up virtual environment
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate
 
 # Install development dependencies
 pip install -r requirements-dev.txt
@@ -160,6 +210,40 @@ python -m pytest tests/
 
 # Make executable
 chmod +x pyprotect.py
+```
+
+#### Windows (PowerShell)
+```powershell
+# Clone repository
+git clone https://github.com/dynaz/PyProtect.git
+cd PyProtect
+
+# Set up virtual environment
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Run tests
+python -m pytest tests/
+```
+
+#### Windows (Command Prompt)
+```cmd
+# Clone repository
+git clone https://github.com/dynaz/PyProtect.git
+cd PyProtect
+
+# Set up virtual environment
+python -m venv venv
+venv\Scripts\activate.bat
+
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Run tests
+python -m pytest tests/
 ```
 
 ---
