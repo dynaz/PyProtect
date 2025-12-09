@@ -35,10 +35,45 @@ else
     exit 1
 fi
 
-# Install if running as pip package
+# Install if running as pip package (optional - symlink works without it)
 if [ -f "setup.py" ]; then
     echo "📦 Installing as Python package..."
-    pip3 install -e .
+    
+    # Try normal installation and capture output
+    ERROR_OUTPUT=$(pip3 install -e . 2>&1)
+    INSTALL_STATUS=$?
+    
+    if [ $INSTALL_STATUS -eq 0 ]; then
+        echo "✅ Package installed successfully"
+    else
+        # Check if it's an externally-managed-environment error
+        if echo "$ERROR_OUTPUT" | grep -q "externally-managed-environment"; then
+            echo "⚠️  Externally-managed Python environment detected (PEP 668)"
+            echo ""
+            echo "💡 Attempting with --break-system-packages flag..."
+            echo "   (Note: This bypasses system package protection)"
+            
+            if pip3 install -e . --break-system-packages 2>/dev/null; then
+                echo "✅ Package installed with --break-system-packages"
+            else
+                echo "⚠️  Package installation skipped (non-critical)"
+                echo ""
+                echo "   ✅ The symlink already works - you can use 'pyprotect' command!"
+                echo ""
+                echo "   💡 Alternative installation methods:"
+                echo "      • Use pipx: sudo apt install pipx && pipx install -e ."
+                echo "      • Use virtual environment:"
+                echo "        python3 -m venv venv && source venv/bin/activate && pip install -e ."
+                echo "      • Skip package install (symlink is sufficient for command usage)"
+            fi
+        else
+            # Other error - show it but don't fail
+            echo "⚠️  Package installation failed (non-critical)"
+            echo "   The symlink already works - you can use 'pyprotect' command"
+            echo "   Error details:"
+            echo "$ERROR_OUTPUT" | head -3 | sed 's/^/   /'
+        fi
+    fi
 fi
 
 echo ""

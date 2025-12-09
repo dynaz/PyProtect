@@ -63,10 +63,22 @@ Before installing PyProtect, ensure you have:
 
 If the automatic installers don't work, follow these steps:
 
-### Step 1: Create Wrapper Script
+### Step 1: Create Wrapper Scripts
 
-Create a file named `pyprotect.bat` in the PyProtect directory:
+**For PowerShell** (recommended), create `pyprotect.ps1`:
+```powershell
+# PyProtect PowerShell Wrapper
+param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Arguments)
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$pyprotectPath = Join-Path $scriptDir "pyprotect.py"
+if (Get-Command python -ErrorAction SilentlyContinue) {
+    & python $pyprotectPath $Arguments
+} else {
+    Write-Error "Python not found"
+}
+```
 
+**For Command Prompt**, create `pyprotect.bat`:
 ```batch
 @echo off
 python "%~dp0pyprotect.py" %*

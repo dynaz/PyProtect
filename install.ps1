@@ -27,11 +27,71 @@ if (-not (Test-Path $PYPROTECT_PATH)) {
 
 Write-Host "Found pyprotect.py" -ForegroundColor Green
 
-# Create wrapper batch file
-$wrapperContent = "@echo off`r`npython `"$PYPROTECT_PATH`" %*"
-$wrapperPath = Join-Path $SCRIPT_DIR "pyprotect.bat"
-$wrapperContent | Out-File -FilePath $wrapperPath -Encoding ASCII
+# Create wrapper batch file (for Command Prompt)
+$batchContent = @"
+@echo off
+REM PyProtect wrapper - tries multiple methods to find Python
+setlocal enabledelayedexpansion
+
+REM Try py launcher first
+py "%~dp0pyprotect.py" %* 2>nul
+if %errorlevel% equ 0 exit /b 0
+
+REM Try python command
+python "%~dp0pyprotect.py" %* 2>nul
+if %errorlevel% equ 0 exit /b 0
+
+REM Try python3 command
+python3 "%~dp0pyprotect.py" %* 2>nul
+if %errorlevel% equ 0 exit /b 0
+
+REM If all fail, show error
+echo ERROR: Python not found. Please ensure Python is installed and in PATH.
+echo.
+echo You can also run directly: python "%~dp0pyprotect.py" [options]
+exit /b 1
+"@
+$batchPath = Join-Path $SCRIPT_DIR "pyprotect.bat"
+$batchContent | Out-File -FilePath $batchPath -Encoding ASCII
 Write-Host "Created pyprotect.bat wrapper" -ForegroundColor Green
+
+# Create PowerShell wrapper (for PowerShell - preferred)
+$psContent = @"
+# PyProtect PowerShell Wrapper
+param(
+    [Parameter(ValueFromRemainingArguments=`$true)]
+    [string[]]`$Arguments
+)
+
+`$scriptDir = Split-Path -Parent `$MyInvocation.MyCommand.Path
+`$pyprotectPath = Join-Path `$scriptDir "pyprotect.py"
+
+# Try to find Python
+`$pythonCmd = `$null
+
+# Try py launcher first
+if (Get-Command py -ErrorAction SilentlyContinue) {
+    `$pythonCmd = "py"
+}
+# Then try python
+elseif (Get-Command python -ErrorAction SilentlyContinue) {
+    `$pythonCmd = "python"
+}
+# Then try python3
+elseif (Get-Command python3 -ErrorAction SilentlyContinue) {
+    `$pythonCmd = "python3"
+}
+else {
+    Write-Error "ERROR: Python not found. Please ensure Python is installed and in PATH."
+    exit 1
+}
+
+# Run pyprotect.py with arguments
+& `$pythonCmd `$pyprotectPath `$Arguments
+"@
+$psPath = Join-Path $SCRIPT_DIR "pyprotect.ps1"
+$psContent | Out-File -FilePath $psPath -Encoding UTF8
+Write-Host "Created pyprotect.ps1 wrapper" -ForegroundColor Green
 
 # Try to add to user PATH
 Write-Host ""

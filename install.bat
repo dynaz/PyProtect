@@ -32,9 +32,21 @@ if not exist "%PYPROTECT_PATH%" (
 echo ✅ Found pyprotect.py
 echo.
 
-REM Create wrapper batch file
+REM Create wrapper batch file (with fallback to find Python)
 echo @echo off > "%SCRIPT_DIR%pyprotect.bat"
-echo python "%PYPROTECT_PATH%" %%* >> "%SCRIPT_DIR%pyprotect.bat"
+echo REM Try py launcher first, then python >> "%SCRIPT_DIR%pyprotect.bat"
+echo where py ^>nul 2^>^&1 >> "%SCRIPT_DIR%pyprotect.bat"
+echo if %%errorlevel%% equ 0 ^( >> "%SCRIPT_DIR%pyprotect.bat"
+echo     py "%%~dp0pyprotect.py" %%* >> "%SCRIPT_DIR%pyprotect.bat"
+echo ^) else ^( >> "%SCRIPT_DIR%pyprotect.bat"
+echo     where python ^>nul 2^>^&1 >> "%SCRIPT_DIR%pyprotect.bat"
+echo     if %%errorlevel%% equ 0 ^( >> "%SCRIPT_DIR%pyprotect.bat"
+echo         python "%%~dp0pyprotect.py" %%* >> "%SCRIPT_DIR%pyprotect.bat"
+echo     ^) else ^( >> "%SCRIPT_DIR%pyprotect.bat"
+echo         echo ERROR: Python not found. Please ensure Python is installed and in PATH. >> "%SCRIPT_DIR%pyprotect.bat"
+echo         exit /b 1 >> "%SCRIPT_DIR%pyprotect.bat"
+echo     ^) >> "%SCRIPT_DIR%pyprotect.bat"
+echo ^) >> "%SCRIPT_DIR%pyprotect.bat"
 echo ✅ Created pyprotect.bat wrapper
 echo.
 

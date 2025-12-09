@@ -79,6 +79,8 @@ cd PyProtect
 ./install.sh
 ```
 
+> 💡 **Note for Ubuntu 23.04+/Debian 12+/WSL**: If you see "externally-managed-environment" error, the installer will automatically handle it. The `pyprotect` command will work even if package installation is skipped.
+
 #### Windows (PowerShell - Recommended)
 ```powershell
 # Clone and install PyProtect with standalone command
@@ -291,8 +293,10 @@ pyprotect -c  # Should scan for license files
 ```
 
 ### Troubleshooting Installation
+
+#### "pyprotect command not found"
 ```bash
-# If pyprotect command not found
+# Check if in PATH
 which pyprotect  # Check if in PATH
 ls -la /usr/local/bin/pyprotect  # Check symlink
 
@@ -301,6 +305,34 @@ ls -la /usr/local/bin/pyprotect  # Check symlink
 
 # Check permissions
 ls -la pyprotect.py
+```
+
+#### "externally-managed-environment" Error (Ubuntu/Debian/WSL)
+**Status**: ✅ **HANDLED** - The installer now automatically handles this!
+
+If you see this error on Ubuntu 23.04+, Debian 12+, or WSL:
+```
+error: externally-managed-environment
+```
+
+**What happens**: The installer will:
+1. ✅ Automatically try with `--break-system-packages` flag
+2. ✅ If that fails, skip package installation (symlink still works!)
+3. ✅ The `pyprotect` command will work even without package installation
+
+**Manual alternatives** (if needed):
+```bash
+# Option 1: Use pipx (recommended for applications)
+sudo apt install pipx
+pipx install -e .
+
+# Option 2: Use virtual environment
+python3 -m venv venv
+source venv/bin/activate
+pip install -e .
+
+# Option 3: Skip package install (symlink is sufficient)
+# The symlink created by install.sh is enough to use 'pyprotect' command
 ```
 
 ### Upgrade PyProtect
