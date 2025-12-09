@@ -102,6 +102,85 @@ def get_machine_id():
 
     return machine_id
 
+def restore_from_backup(backup_path):
+    """Restore original from backup"""
+    import re
+    
+    backup_path = Path(backup_path)
+    
+    # Validate backup path exists
+    if not backup_path.exists():
+        print(f"❌ Backup not found: {backup_path}")
+        return False
+    
+    # Extract original path by removing .backup_TIMESTAMP
+    # Pattern: name.backup_YYYYMMDD_HHMMSS or name.backup_YYYYMMDD_HHMMSS.ext
+    backup_name = backup_path.name
+    
+    # Try to match the backup pattern
+    if backup_path.is_dir():
+        # Directory: module.backup_20251209_125530
+        match = re.match(r'^(.+)\.backup_\d{8}_\d{6}$', backup_name)
+    else:
+        # File: script.backup_20251209_125530.py
+        match = re.match(r'^(.+)\.backup_\d{8}_\d{6}(\..+)?$', backup_name)
+    
+    if not match:
+        print(f"❌ Not a valid backup name: {backup_name}")
+        print("   Backup names should match: name.backup_YYYYMMDD_HHMMSS")
+        return False
+    
+    # Reconstruct original path
+    if backup_path.is_dir():
+        original_name = match.group(1)
+    else:
+        original_name = match.group(1) + (match.group(2) or '')
+    
+    original_path = backup_path.parent / original_name
+    
+    # Show restore plan
+    print("\n" + "="*60)
+    print("🔄 Restore Mode")
+    print("="*60)
+    print(f"📦 Backup: {backup_path}")
+    print(f"🎯 Will restore to: {original_path}")
+    
+    if original_path.exists():
+        print(f"⚠️  Current version exists and will be REMOVED")
+    else:
+        print(f"✅ Target location is empty")
+    
+    print()
+    
+    # Ask for confirmation
+    response = input("⚠️  Proceed with restore? (y/n): ").strip().lower()
+    
+    if response not in ['y', 'yes']:
+        print("\n🛑 Restore cancelled by user")
+        return False
+    
+    print("\n🔄 Restoring...")
+    
+    try:
+        # Remove current version if it exists
+        if original_path.exists():
+            if original_path.is_dir():
+                shutil.rmtree(str(original_path))
+            else:
+                original_path.unlink()
+            print(f"✅ Removed current version at: {original_path}")
+        
+        # Restore backup
+        shutil.move(str(backup_path), str(original_path))
+        print(f"✅ Backup restored to: {original_path}")
+        print(f"\n💡 Original restored successfully!")
+        
+        return True
+        
+    except Exception as e:
+        print(f"\n❌ Restore failed: {e}")
+        return False
+
 def check_license_status(directory):
     """Check license status in the specified directory"""
     print("🔍 Checking License Status:")
@@ -236,7 +315,8 @@ class NameCollector(ast.NodeVisitor):
             '_check_', '_prepare_',
             '_create_', '_write_', '_update_', '_default_',
             'show_', 'process_',
-            'execute', 'compile',  # Added execute and compile
+            'execute', 'compile',
+            '_info',  # Info methods (e.g., session_info, user_info)
         ]
     
     def visit_Assign(self, node):
@@ -281,6 +361,7 @@ class Obfuscator(ast.NodeTransformer):
         self.in_public_class = False  # Track if we're inside a public class
         self.in_controller_class = False  # Track if we're inside a Controller class
         self.in_fstring = False  # Track if we're inside an f-string
+        self.in_class_body = False  # Track if we're in a class body (not in a method)
         self.collected_methods = collected_methods or {}  # Pre-collected method names
         
         # Odoo-specific reserved attributes that must not be obfuscated
@@ -331,6 +412,7 @@ class Obfuscator(ast.NodeTransformer):
             'process_',   # process methods (common in business logic)
             'execute',    # execute methods (common for command execution)
             'compile',    # compile methods
+            '_info',      # info methods (e.g., session_info, user_info)
         ]
         
         # Odoo field names collected from first pass
@@ -377,32 +459,109 @@ class Obfuscator(ast.NodeTransformer):
         self.class_count += 1
         return name
 
+    def visit_Assign(self, node):
+        """Preserve Odoo model attributes when assigning in class body (not in methods)"""
+        # Check if we're assigning to Odoo model attributes (_name, _description, etc.)
+        # These must be preserved when assigned at class level (not in methods)
+        if self.in_class_body:  # We're in a class body, not inside a method
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    # If this is an Odoo model attribute, preserve it
+                    if target.id in self.odoo_reserved:
+                        # Don't obfuscate this assignment - it's a model attribute
+                        # Visit the value but don't change the target name
+                        self.generic_visit(node.value)
+                        return node
+        
+        # Preserve module-level constants and common variables
+        # These are typically defined at module level and used throughout
+        if self.module_level_depth == 0:  # We're at module level, not in a function/class
+            common_module_vars = ['_logger', '_log', 'logger', 'log']
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    # Preserve uppercase constants and common module variables
+                    if target.id.isupper() or target.id in common_module_vars:
+                        # Visit the value but preserve the target name
+                        self.generic_visit(node.value)
+                        return node
+        
+        # Continue with normal processing (visit children)
+        self.generic_visit(node)
+        return node
+
     def visit_Name(self, node):
         """Obfuscate variable names"""
-        # Skip Odoo reserved attributes
-        if node.id in self.odoo_reserved:
-            return node
-        
         # Skip Odoo field names
         if node.id in self.odoo_field_names:
             return node
         
-        # Skip UPPERCASE_CONSTANTS (Python convention for public module-level constants)
-        # These are often imported by other modules
-        if node.id.isupper() and '_' in node.id:
+        # Skip ALL UPPERCASE constants (Python convention for module-level constants)
+        # These are often used across the module and should be preserved
+        # Examples: FORMATS, EXECUTABLE, CONSTANT_VALUE, etc.
+        if node.id.isupper():
             return node
-            
+        
+        # Preserve common module-level variables that are used throughout the code
+        # These are typically defined at module level and referenced in multiple places
+        common_module_vars = ['_logger', '_log', 'logger', 'log']
+        if node.id in common_module_vars and self.module_level_depth == 0:
+            # Only preserve at module level, not if it's a local variable
+            if node.id not in self.var_map:
+                return node
+        
+        # For Store context (variable assignment)
         if isinstance(node.ctx, ast.Store):
+            # If we're in a class body (not in a method) and this is an Odoo model attribute, preserve it
+            if self.in_class_body and node.id in self.odoo_reserved:
+                return node
+            # Preserve module-level constants and common variables at module level
+            if self.module_level_depth == 0:
+                if node.id.isupper() or node.id in common_module_vars:
+                    return node
+            # Otherwise, allow obfuscation (local variables/parameters can have any name)
             if node.id not in self.var_map:
                 self.var_map[node.id] = self.generate_var_name()
             node.id = self.var_map[node.id]
         elif isinstance(node.ctx, ast.Load):
+            # Load: check var_map first (local variables should use obfuscated name)
             if node.id in self.var_map:
                 node.id = self.var_map[node.id]
             elif node.id in self.func_map:
                 node.id = self.func_map[node.id]
             elif node.id in self.class_map:
                 node.id = self.class_map[node.id]
+            # Preserve uppercase constants and common module variables if not in var_map
+            elif node.id.isupper() or (node.id in common_module_vars and self.module_level_depth == 0):
+                return node
+            # Only preserve odoo_reserved if it's NOT a local variable (not in var_map)
+            # This preserves module/class names like 'api', 'models', 'fields'
+            elif node.id in self.odoo_reserved:
+                return node
+        return node
+
+    def visit_Call(self, node):
+        """Preserve keyword argument names in method calls - they must match method signatures"""
+        # Keyword argument names in method calls must NEVER be obfuscated
+        # They must match the method's parameter names exactly
+        # This is critical for external library calls and method calls where parameter names
+        # are part of the public API
+        for keyword in node.keywords:
+            # keyword.arg is the parameter name (e.g., 'output_file' in output_file=value)
+            # This must be preserved as-is to match the method signature
+            # Even if the method's parameters were obfuscated, keyword arguments in calls
+            # should use the original parameter names (or the obfuscated ones if we're calling
+            # our own obfuscated methods). For safety, we preserve all keyword argument names.
+            # Only visit the value, not the arg name
+            if keyword.value:
+                keyword.value = self.visit(keyword.value)
+            # keyword.arg is a string, not a Name node, so it won't be obfuscated by visit_Name
+            # But we explicitly ensure it's not touched here
+        
+        # Visit the function and positional arguments normally
+        # But skip keywords since we already handled them
+        node.func = self.visit(node.func)
+        node.args = [self.visit(arg) for arg in node.args]
+        # Keywords are already handled above, don't visit them again
         return node
 
     def visit_Attribute(self, node):
@@ -475,8 +634,20 @@ class Obfuscator(ast.NodeTransformer):
             if node.name in self.func_map:
                 del self.func_map[node.name]
 
+        # Save the current var_map to restore after processing this method
+        # Each method has its own scope, so we need to isolate variable names
+        saved_var_map = self.var_map.copy()
+        
+        # Start with a fresh var_map for this method's local scope
+        # This prevents variables from different methods from interfering
+        self.var_map = {}
+        
         # Obfuscate argument names (skip 'self' and controller route params)
         # Controller route parameters must match the URL pattern and should not be obfuscated
+        # Also preserve parameter names in public methods (non-underscore) that might be called
+        # with keyword arguments from outside the class
+        is_public_method = not node.name.startswith('_')
+        
         for arg in node.args.args:
             # Skip 'self'
             if arg.arg == 'self':
@@ -487,17 +658,37 @@ class Obfuscator(ast.NodeTransformer):
                 # Don't obfuscate parameters in controller methods
                 continue
             
-            # Obfuscate other parameters
+            # Preserve parameter names in public methods to maintain keyword argument compatibility
+            # Public methods (not starting with _) are often called with keyword arguments
+            # and the parameter names must match
+            if is_public_method:
+                # Don't obfuscate parameter names in public methods
+                # Also don't add them to var_map so they remain as-is in the method body
+                continue
+            
+            # Obfuscate other parameters (private methods)
+            # Add to the fresh var_map for this method scope
             if arg.arg not in self.var_map:
                 self.var_map[arg.arg] = self.generate_var_name()
             arg.arg = self.var_map.get(arg.arg, arg.arg)
 
+        # Mark that we're entering a method (not in class body anymore)
+        old_in_class_body = self.in_class_body
+        self.in_class_body = False
+        
         # Increase depth before visiting function body
         self.module_level_depth += 1
         # Recursively visit the function body
         self.generic_visit(node)
         # Decrease depth after visiting
         self.module_level_depth -= 1
+        
+        # Restore class body state
+        self.in_class_body = old_in_class_body
+        
+        # Restore the var_map from before this method
+        # This ensures variables from different methods don't interfere
+        self.var_map = saved_var_map
         
         return node
 
@@ -534,10 +725,14 @@ class Obfuscator(ast.NodeTransformer):
         # Track if we're in a public class or controller class
         old_in_public_class = self.in_public_class
         old_in_controller_class = self.in_controller_class
+        old_in_class_body = self.in_class_body
         if is_public_class:
             self.in_public_class = True
         if is_controller_class:
             self.in_controller_class = True
+        
+        # Mark that we're in a class body (for preserving model attributes)
+        self.in_class_body = True
         
         # Increase depth before visiting class body
         self.module_level_depth += 1
@@ -549,6 +744,7 @@ class Obfuscator(ast.NodeTransformer):
         # Restore the previous state
         self.in_public_class = old_in_public_class
         self.in_controller_class = old_in_controller_class
+        self.in_class_body = old_in_class_body
         
         return node
 
@@ -812,7 +1008,7 @@ def _decrypt_str(index):
 
     return runtime_code
 
-def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_days=365, preserve_api=True):
+def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_days=365, preserve_api=True, project_url=None):
     """Obfuscate all Python files in a directory recursively"""
     print(f"🔍 Scanning directory: {input_dir}")
     print(f"📁 Output directory: {output_dir}")
@@ -887,7 +1083,11 @@ def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_da
             f.write(f"License Key: {license_key}\n")
             f.write(f"Expires: {time.ctime(expiration)}\n")
             f.write(f"Protected: {time.ctime(time.time())}\n")
+            if project_url:
+                f.write(f"Project URL: {project_url}\n")
         print(f"💾 Project license saved to: {license_file}")
+        if project_url:
+            print(f"🔗 Project URL: {project_url}")
         print()
 
     # Process all files
@@ -1002,7 +1202,7 @@ def obfuscate_file_single(input_file, output_file, machine_id=None, license_key=
         print(f"   Error obfuscating {input_file}: {e}")
         return False
 
-def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=365, preserve_api=True):
+def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=365, preserve_api=True, project_url=None):
     """Obfuscate a single Python file with optional machine binding"""
     output_path = Path(output_file)
 
@@ -1030,7 +1230,11 @@ def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=
             f.write(f"Machine ID: {machine_id}\n")
             f.write(f"License Key: {license_key}\n")
             f.write(f"Expires: {time.ctime(expiration)}\n")
+            if project_url:
+                f.write(f"Project URL: {project_url}\n")
         print(f"💾 License saved to: {license_file}")
+        if project_url:
+            print(f"🔗 Project URL: {project_url}")
 
     # Check if this is a manifest file (Odoo loads these with ast.literal_eval)
     input_path = Path(input_file)
@@ -1105,6 +1309,12 @@ if __name__ == "__main__":
                        help="Input Python file or directory (not needed with -m)")
     parser.add_argument("-o", "--output", default=str(get_default_output_path()),
                        help="Output obfuscated file or directory (default: PyProtect/dist/filename or PyProtect/dist/inputname/)")
+    parser.add_argument("-d", "--deploy", action="store_true",
+                       help="Deploy mode: backup original and replace in-place (ignores -o)")
+    parser.add_argument("-r", "--restore",
+                       help="Restore from backup: specify backup path (e.g., module.backup_20251209_125530)")
+    parser.add_argument("-u", "--url",
+                       help="Project URL to embed in license file (e.g., https://github.com/user/repo)")
     parser.add_argument("-m", "--machine-id", action="store_true",
                        help="Display current machine ID and exit")
     parser.add_argument("-c", "--check-license", nargs='?', const=".",
@@ -1117,6 +1327,11 @@ if __name__ == "__main__":
                        help="Obfuscate all names including public API (may break imports)")
 
     args = parser.parse_args()
+
+    # Handle restore mode
+    if args.restore:
+        success = restore_from_backup(args.restore)
+        sys.exit(0 if success else 1)
 
     # Handle machine ID display
     if args.machine_id:
@@ -1147,16 +1362,61 @@ if __name__ == "__main__":
         print(f"❌ Input path not found: {args.input}")
         sys.exit(1)
 
-    # Determine output path
-    default_dist_path = get_default_output_path()
-    resolved_output = Path(args.output).absolute()
-
+    # Create backup of input (always, for safety)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
     if input_path.is_dir():
-        # Directory input -> always create input_dirname subdirectory
-        output_path = resolved_output / input_path.name
+        input_backup_path = input_path.parent / f"{input_path.name}.backup_{timestamp}"
     else:
-        # File input -> create filename in output directory
-        output_path = resolved_output / input_path.name
+        input_backup_path = input_path.parent / f"{input_path.stem}.backup_{timestamp}{input_path.suffix}"
+    
+    print(f"📦 Creating backup of input: {input_backup_path.name}")
+    try:
+        if input_path.is_dir():
+            shutil.copytree(str(input_path), str(input_backup_path))
+        else:
+            shutil.copy2(str(input_path), str(input_backup_path))
+        print(f"✅ Input backed up to: {input_backup_path}")
+        print()
+    except Exception as e:
+        print(f"⚠️  Warning: Could not create input backup: {e}")
+        print("   Continuing anyway...")
+        print()
+
+    # Determine output path
+    # Create timestamp for backups
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    
+    if args.deploy:
+        # Deploy mode: protect to temp location, then backup and replace
+        print("🚀 Deploy mode: Will backup and replace original")
+        
+        # Set backup path
+        if input_path.is_dir():
+            backup_path = input_path.parent / f"{input_path.name}.backup_{timestamp}"
+        else:
+            backup_path = input_path.parent / f"{input_path.stem}.backup_{timestamp}{input_path.suffix}"
+        
+        # Use temp location for protection (don't overwrite original yet)
+        default_dist_path = get_default_output_path()
+        if input_path.is_dir():
+            output_path = default_dist_path / input_path.name
+        else:
+            output_path = default_dist_path / input_path.name
+        
+        print(f"📦 Backup will be created at: {backup_path}")
+        print(f"🎯 Protected code will replace: {input_path}")
+        print()
+    else:
+        # Normal mode: output to different location
+        default_dist_path = get_default_output_path()
+        resolved_output = Path(args.output).absolute()
+
+        if input_path.is_dir():
+            # Directory input -> always create input_dirname subdirectory
+            output_path = resolved_output / input_path.name
+        else:
+            # File input -> create filename in output directory
+            output_path = resolved_output / input_path.name
 
     try:
         # Determine if we should preserve public API (default: True, unless --no-preserve-api)
@@ -1175,11 +1435,61 @@ if __name__ == "__main__":
                 str(input_path), str(output_path),
                 bind_machine=args.bind_machine,
                 expiration_days=args.expiration,
-                preserve_api=preserve_api
+                preserve_api=preserve_api,
+                project_url=args.url
             )
 
             if success:
                 print("\n✅ Directory obfuscation complete!")
+                
+                # Deploy mode: backup and replace (with confirmation)
+                if args.deploy:
+                    print("\n" + "="*60)
+                    print("🚀 Deploy Mode: Ready to backup and replace")
+                    print("="*60)
+                    print(f"📂 Original: {input_path}")
+                    print(f"📦 Backup will be: {backup_path}")
+                    print(f"✨ Protected code at: {output_path}")
+                    print()
+                    
+                    # Ask for confirmation
+                    response = input("⚠️  Proceed with backup and replacement? (y/n): ").strip().lower()
+                    
+                    if response in ['y', 'yes']:
+                        print("\n🔄 Deploying...")
+                        try:
+                            # Check if backup path already exists and remove it if needed
+                            if backup_path.exists():
+                                print(f"⚠️  Backup path already exists: {backup_path}")
+                                print("   Removing existing backup...")
+                                if backup_path.is_dir():
+                                    shutil.rmtree(str(backup_path))
+                                else:
+                                    backup_path.unlink()
+                                print(f"   ✅ Removed existing backup")
+                            
+                            # Move original to backup
+                            shutil.move(str(input_path), str(backup_path))
+                            print(f"✅ Original backed up to: {backup_path}")
+                            
+                            # Move protected version to original location
+                            shutil.move(str(output_path), str(input_path))
+                            print(f"✅ Protected version deployed to: {input_path}")
+                            print(f"\n💡 To restore: mv {backup_path} {input_path}")
+                        except Exception as e:
+                            print(f"\n❌ Deploy failed: {e}")
+                            print(f"⚠️  Protected files are still at: {output_path}")
+                            import traceback
+                            traceback.print_exc()
+                            sys.exit(1)
+                    else:
+                        print("\n🛑 Deploy cancelled by user")
+                        print(f"📁 Protected files remain at: {output_path}")
+                        print(f"📁 Original untouched at: {input_path}")
+                        print("\n💡 To deploy manually:")
+                        print(f"   mv {input_path} {backup_path}")
+                        print(f"   mv {output_path} {input_path}")
+                
                 if args.bind_machine:
                     print("\n⚠️  WARNING: All code is now bound to the current machine!")
                     print(f"   Only machines with Machine ID '{get_machine_id()[:16]}...' can run it.")
@@ -1200,8 +1510,57 @@ if __name__ == "__main__":
             obfuscate_file(str(input_path), str(output_path),
                           bind_machine=args.bind_machine,
                           expiration_days=args.expiration,
-                          preserve_api=preserve_api)
+                          preserve_api=preserve_api,
+                          project_url=args.url)
             print(f"\n✅ File obfuscation complete: {output_path}")
+            
+            # Deploy mode: backup and replace (with confirmation)
+            if args.deploy:
+                print("\n" + "="*60)
+                print("🚀 Deploy Mode: Ready to backup and replace")
+                print("="*60)
+                print(f"📄 Original file: {input_path}")
+                print(f"📦 Backup will be: {backup_path}")
+                print(f"✨ Protected file at: {output_path}")
+                print()
+                
+                # Ask for confirmation
+                response = input("⚠️  Proceed with backup and replacement? (y/n): ").strip().lower()
+                
+                if response in ['y', 'yes']:
+                    print("\n🔄 Deploying...")
+                    try:
+                        # Check if backup path already exists and remove it if needed
+                        if backup_path.exists():
+                            print(f"⚠️  Backup path already exists: {backup_path}")
+                            print("   Removing existing backup...")
+                            if backup_path.is_dir():
+                                shutil.rmtree(str(backup_path))
+                            else:
+                                backup_path.unlink()
+                            print(f"   ✅ Removed existing backup")
+                        
+                        # Move original to backup
+                        shutil.move(str(input_path), str(backup_path))
+                        print(f"✅ Original backed up to: {backup_path}")
+                        
+                        # Move protected version to original location
+                        shutil.move(str(output_path), str(input_path))
+                        print(f"✅ Protected version deployed to: {input_path}")
+                        print(f"\n💡 To restore: mv {backup_path} {input_path}")
+                    except Exception as e:
+                        print(f"\n❌ Deploy failed: {e}")
+                        print(f"⚠️  Protected file is still at: {output_path}")
+                        import traceback
+                        traceback.print_exc()
+                        sys.exit(1)
+                else:
+                    print("\n🛑 Deploy cancelled by user")
+                    print(f"📁 Protected file remains at: {output_path}")
+                    print(f"📁 Original untouched at: {input_path}")
+                    print("\n💡 To deploy manually:")
+                    print(f"   mv {input_path} {backup_path}")
+                    print(f"   mv {output_path} {input_path}")
 
             if args.bind_machine:
                 print("\n⚠️  WARNING: This code is now bound to the current machine!")

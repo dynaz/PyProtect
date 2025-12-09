@@ -29,7 +29,9 @@ PyProtect is a comprehensive Python code obfuscation tool with machine ID bindin
 
 ### Command Line Interface
 - **Standalone Executable**: Run with `pyprotect` command after installation
-- **Professional CLI**: Standard flag-based interface (`-i`, `-o`, `-m`, `-c`)
+- **Professional CLI**: Standard flag-based interface (`-i`, `-o`, `-d`, `-r`, `-m`, `-c`)
+- **Deploy Mode**: 🚀 Backup and replace in-place with confirmation (`-d`)
+- **Restore Mode**: 🔄 Easy rollback from backups with confirmation (`-r`)
 - **Easy Installation**: One-command setup with `./install.sh`
 - **System Integration**: Available globally after installation
 
@@ -346,6 +348,10 @@ git pull origin main
 
 > **✅ NEW**: PyProtect now supports **Odoo and framework obfuscation**! Public API names (functions and classes that don't start with `_`) are automatically preserved, allowing cross-module imports to work correctly.
 
+> **🚀 NEW**: Deploy mode (`-d`) - Automatically backup and replace in-place with user confirmation!
+
+> **🔄 NEW**: Restore mode (`-r`) - Easily restore from backups with one command!
+
 ### Protect a Single File
 ```bash
 pyprotect -i my_script.py -b
@@ -357,6 +363,18 @@ pyprotect -i my_script.py -b
 pyprotect -i my_project/ -b -e 365
 # Output: /dist/my_project/ (entire project protected)
 # Note: Only use for self-contained projects without explicit cross-module imports
+```
+
+### Deploy Mode - Backup and Replace ⭐
+```bash
+pyprotect -i /path/to/module -d -b -e 365
+# Protects, asks confirmation, then backs up and replaces original
+```
+
+### Restore from Backup ⭐
+```bash
+pyprotect -r /path/to/module.backup_20251209_125530
+# Asks confirmation, then restores original from backup
 ```
 
 ### Test Protection
@@ -412,11 +430,14 @@ pyprotect -i INPUT [-o OUTPUT] [OPTIONS]
 |--------|-------------|---------|
 | `-i, --input INPUT` | Input file or directory | Required |
 | `-o, --output OUTPUT` | Output file or directory | `/dist/` |
+| `-d, --deploy` | 🚀 **NEW**: Deploy mode - backup and replace in-place (ignores -o) | Disabled |
+| `-r, --restore BACKUP` | 🔄 **NEW**: Restore from backup - specify backup path | - |
+| `-u, --url URL` | 🔗 **NEW**: Project URL to embed in license file (e.g., GitHub repo) | - |
 | `-m, --machine-id` | Display current machine ID | - |
 | `-c, --check-license DIR` | Check license validity in directory | Current dir |
-| `-b` | Bind code to current machine hardware | Disabled |
-| `-e DAYS` | License expiration in days | 365 |
-| `--no-preserve-api` | ✨ **NEW**: Obfuscate all names including public API | Disabled (API preserved) |
+| `-b, --bind-machine` | Bind code to current machine hardware | Disabled |
+| `-e DAYS, --expiration DAYS` | License expiration in days | 365 |
+| `--no-preserve-api` | Obfuscate all names including public API | Disabled (API preserved) |
 
 ### 🆕 Public API Preservation (Default)
 
@@ -507,6 +528,65 @@ pyprotect -i /odoo18/odoo18-server/addons/my_custom_addon/ -b
 # Test after obfuscation:
 cd /dist/custom_addon
 python3 -m odoo  # Should work! ✅
+```
+
+### Example 8: Deploy Mode - Backup and Replace In-Place 🚀 NEW
+```bash
+# Deploy mode: Protect and replace original (with automatic backup)
+pyprotect -i /odoo18/custom/my_addon -d -b -e 365 -u https://github.com/mycompany/my_addon
+
+# What happens:
+# 1. Protects the code
+# 2. Shows confirmation prompt:
+#    ⚠️  Proceed with backup and replacement? (y/n): 
+# 3. If 'y': Creates backup (my_addon.backup_20251209_125530) and replaces original
+# 4. If 'n': Keeps everything unchanged
+
+# Result (if confirmed):
+# ✅ my_addon/ - Protected code (deployed)
+# 📦 my_addon.backup_20251209_125530/ - Original backup
+
+# Benefits:
+# ✅ One-command deployment
+# ✅ Automatic timestamped backup
+# ✅ User confirmation before replacing
+# ✅ Backup stays in same directory for easy access
+```
+
+### Example 9: Restore from Backup 🔄 NEW
+```bash
+# Restore original code from backup
+pyprotect -r /odoo18/custom/my_addon.backup_20251209_125530
+
+# What happens:
+# 1. Shows restore plan
+# 2. Asks for confirmation:
+#    ⚠️  Proceed with restore? (y/n):
+# 3. If 'y': Removes current version and restores backup
+# 4. If 'n': Nothing is changed
+
+# Benefits:
+# ✅ Easy one-command restore
+# ✅ Automatic path detection
+# ✅ User confirmation before removing current version
+# ✅ Safe rollback if protected code has issues
+```
+
+### Example 10: Complete Deploy → Test → Restore Workflow
+```bash
+# Step 1: Deploy protected version
+pyprotect -i /odoo18/custom/my_addon -d -b -e 365
+# Answer 'y' to confirm
+
+# Step 2: Test the protected version
+# ... test your application ...
+
+# Step 3: If issues found, restore quickly
+pyprotect -r /odoo18/custom/my_addon.backup_20251209_125530
+# Answer 'y' to restore
+
+# Step 4: Fix issues in original, then re-deploy
+pyprotect -i /odoo18/custom/my_addon -d -b -e 365
 ```
 
 ## 🔒 Security Features
