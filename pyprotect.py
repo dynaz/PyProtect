@@ -27,6 +27,32 @@ import time
 import shutil
 from pathlib import Path
 
+def get_default_output_path():
+    """Get the default output path relative to the PyProtect directory"""
+    script_dir = Path(__file__).parent.absolute()
+    return script_dir / "dist"
+
+def create_backup(output_path):
+    """Create a backup of existing output before overwriting"""
+    if output_path.exists():
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        backup_name = f"{output_path.name}_backup_{timestamp}"
+
+        if output_path.is_dir():
+            backup_path = output_path.parent / backup_name
+            try:
+                shutil.copytree(str(output_path), str(backup_path))
+                print(f"📦 Created backup: {backup_path}")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not create directory backup: {e}")
+        else:
+            backup_path = output_path.parent / backup_name
+            try:
+                shutil.copy2(str(output_path), str(backup_path))
+                print(f"📦 Created backup: {backup_path}")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not create file backup: {e}")
+
 def get_machine_id():
     """Generate a unique machine identifier based on hardware"""
     components = []
@@ -358,6 +384,9 @@ def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_da
         print(f"❌ Input path is not a directory: {input_dir}")
         return False
 
+    # Create backup if output already exists
+    create_backup(output_path)
+
     # Create output directory
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -474,6 +503,11 @@ def obfuscate_file_single(input_file, output_file, machine_id=None, license_key=
 
 def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=365):
     """Obfuscate a single Python file with optional machine binding"""
+    output_path = Path(output_file)
+
+    # Create backup if output already exists
+    create_backup(output_path)
+
     print(f"Obfuscating {input_file} -> {output_file}")
 
     # Generate license if binding is requested
@@ -544,8 +578,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PyProtect - Python Obfuscator with Machine ID Binding")
     parser.add_argument("-i", "--input",
                        help="Input Python file or directory (not needed with -m)")
-    parser.add_argument("-o", "--output", default="/dist",
-                       help="Output obfuscated file or directory (default: /dist/filename or /dist/inputdir)")
+    parser.add_argument("-o", "--output", default=str(get_default_output_path()),
+                       help="Output obfuscated file or directory (default: PyProtect/dist/filename or PyProtect/dist/inputdir)")
     parser.add_argument("-m", "--machine-id", action="store_true",
                        help="Display current machine ID and exit")
     parser.add_argument("-c", "--check-license", nargs='?', const=".",
@@ -587,13 +621,14 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Determine output path
-    if args.output == "/dist":
+    default_dist_path = get_default_output_path()
+    if args.output == str(default_dist_path):
         if input_path.is_dir():
-            # Directory input -> create /dist/input_dirname
-            output_path = Path("/dist") / input_path.name
+            # Directory input -> create PyProtect/dist/input_dirname
+            output_path = default_dist_path / input_path.name
         else:
-            # File input -> create /dist/filename
-            output_path = Path("/dist") / input_path.name
+            # File input -> create PyProtect/dist/filename
+            output_path = default_dist_path / input_path.name
     else:
         output_path = Path(args.output)
 
