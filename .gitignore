@@ -76,6 +76,9 @@ dist/
 custom*/
 *.pyc
 
+# PyPI credentials (NEVER commit!)
+.pypirc
+
 # Temporary files
 *.tmp
 *.bak
