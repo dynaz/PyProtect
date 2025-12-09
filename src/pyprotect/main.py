@@ -304,6 +304,12 @@ class Obfuscator(ast.NodeTransformer):
             'default_get', 'fields_get', 'fields_view_get',
             # API decorators - these are method names typically
             'api', 'models', 'fields', 'tools', '_',
+            # Common Odoo fields that must not be obfuscated
+            'active', 'name', 'state', 'status', 'sequence', 'company_id',
+            'create_date', 'write_date', 'create_uid', 'write_uid',
+            # HTTP/Controller related
+            'request', 'response', 'redirect', 'http', 'kwargs', 'args',
+            'session', 'cookies', 'headers', 'params', 'query_string',
         }
         
         # Odoo method name patterns that must be preserved
@@ -354,6 +360,11 @@ class Obfuscator(ast.NodeTransformer):
                 # Check if it's in odoo_reserved
                 if method_name in self.odoo_reserved:
                     should_really_preserve = True
+                
+                # Check if it's a public method (preserve_public_api enabled)
+                if self.preserve_public_api:
+                    if not method_name.startswith('_'):
+                        should_really_preserve = True
                 
                 # Only add to func_map if it should truly be obfuscated
                 if not should_really_preserve:
@@ -423,13 +434,19 @@ class Obfuscator(ast.NodeTransformer):
             # Skip Odoo reserved attributes
             elif node.attr in self.odoo_reserved:
                 pass
+            # Check if this is a method call (self.method() or obj.method())
+            # and the method is in func_map (was obfuscated)
             elif node.attr in self.func_map:
                 node.attr = self.func_map[node.attr]
             # Don't obfuscate 'self' or other common attributes
-            elif node.attr not in ['self', '__name__', '__file__', '__init__']:
-                # For other attributes, we could obfuscate them too, but for now skip
+            elif node.attr not in ['self', '__name__', '__file__', '__init__', '__class__', '__dict__', '__module__']:
+                # Check if this might be a method call on self or an object
+                # If it's a method that was obfuscated, we need to update it
+                # But we only do this if it's actually in func_map (already processed)
+                # For now, skip other attributes to avoid breaking things
                 pass
 
+        # Always visit children to handle nested attribute access
         self.generic_visit(node)
         return node
 
@@ -560,6 +577,20 @@ class Obfuscator(ast.NodeTransformer):
             return node
             
         if isinstance(node.value, str) and len(node.value) > 3:  # Only encrypt longer strings
+            # Skip encryption for common Odoo/HTTP field names used as dictionary keys
+            # These are often used in kwargs, request.params, etc.
+            common_odoo_fields = [
+                'active', 'name', 'state', 'status', 'sequence', 'company_id',
+                'create_date', 'write_date', 'create_uid', 'write_uid',
+                'id', 'ids', 'model', 'res_id', 'res_model', 'res_ids',
+                'redirect', 'type', 'auth', 'methods', 'csrf', 'cors',
+                'jsonrpc', 'db', 'login', 'password', 'token', 'session_id',
+            ]
+            
+            # Don't encrypt common field names (likely used as dict keys)
+            if node.value in common_odoo_fields:
+                return node
+            
             # Skip encryption for strings that contain Python code or suspicious patterns
             # as these might be used with ast.literal_eval or cause parsing issues
             skip_keywords = ['import', 'def ', 'class ', 'if ', 'for ', 'while ', 'try ', 'with ', 'from ', 'lambda ', 'return ', 'yield ', 'raise ', 'break', 'continue', 'pass', 'assert ', 'global ', 'nonlocal ', 'except ', 'finally ', 'elif ', 'else:', ' and ', ' or ', ' not ', ' is ', ' in ', 'True', 'False', 'None']
@@ -815,10 +846,6 @@ def _decrypt_str(index):
 
 def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_days=365, preserve_api=True):
     """Obfuscate all Python files in a directory recursively"""
-    print(f"🔍 Scanning directory: {input_dir}")
-    print(f"📁 Output directory: {output_dir}")
-    print()
-
     input_path = Path(input_dir)
     output_path = Path(output_dir)
 
@@ -931,6 +958,9 @@ def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_da
         except Exception as e:
             print(f"   ❌ Error: {rel_path} - {e}")
 
+    print()
+    print(f"🔍 Scanning directory: {input_dir}")
+    print(f"📁 Output directory: {output_dir}")
     print()
     print(f"🎉 Directory processing complete!")
     print(f"   📊 Python files obfuscated: {len(processed_files)}/{len(python_files)}")

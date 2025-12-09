@@ -34,6 +34,8 @@ def main():
                        help="License expiration in days (default: 365)")
     parser.add_argument("--no-preserve-api", action="store_true",
                        help="Obfuscate all names including public API (may break imports)")
+    parser.add_argument("-r", "--redirect", metavar="URL",
+                       help="Enable Odoo redirect handling (preserves redirect-related fields and parameters)")
 
     args = parser.parse_args()
 
