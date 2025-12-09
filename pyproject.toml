@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyprotect"
+version = "1.0.0"
+description = "Advanced Python code obfuscator with machine ID binding"
+readme = "README.md"
+requires-python = ">=3.6"
+license = {text = "MIT"}
+authors = [
+    {name = "PyProtect Team", email = "support@pyprotect.com"}
+]
+keywords = ["obfuscation", "security", "protection", "python", "code"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.6",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Build Tools",
+]
+[project.urls]
+Homepage = "https://github.com/dynaz/PyProtect"
+Documentation = "https://github.com/dynaz/PyProtect#readme"
+Repository = "https://github.com/dynaz/PyProtect"
+Issues = "https://github.com/dynaz/PyProtect/issues"
+
+[project.scripts]
+pyprotect = "pyprotect.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

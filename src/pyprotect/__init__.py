@@ -15,10 +15,14 @@ from .main import (
     obfuscate_directory,
 )
 
+# Export CLI entry point
+from .cli import main as cli_main
+
 __all__ = [
     "get_machine_id",
     "check_license_status",
     "obfuscate_file",
     "obfuscate_directory",
+    "cli_main",
 ]
 

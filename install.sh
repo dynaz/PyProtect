@@ -11,27 +11,38 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Make script executable
-chmod +x pyprotect.py
-echo "✅ Made pyprotect.py executable"
-
-# Create symlink for global access
+# Check structure and make scripts executable if needed
 if [ -f "pyprotect.py" ]; then
-    SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pyprotect.py"
+    chmod +x pyprotect.py
+    echo "✅ Made pyprotect.py executable"
+elif [ -f "src/pyprotect/cli.py" ]; then
+    echo "✅ Package structure detected"
+else
+    echo "⚠️  No executable script found (package installation will create command)"
+fi
 
-    # Try to create symlink in /usr/local/bin (requires sudo)
-    if sudo ln -sf "$SCRIPT_PATH" /usr/local/bin/pyprotect 2>/dev/null; then
-        echo "✅ Created global symlink: pyprotect"
-        echo "   You can now use 'pyprotect' from anywhere!"
+# Check if package structure exists
+if [ -f "src/pyprotect/cli.py" ] || [ -f "pyprotect.py" ]; then
+    # New structure: package will be installed via pip, creating console script
+    # Old structure: create symlink for backward compatibility
+    if [ -f "pyprotect.py" ]; then
+        SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pyprotect.py"
+        
+        # Try to create symlink in /usr/local/bin (requires sudo)
+        if sudo ln -sf "$SCRIPT_PATH" /usr/local/bin/pyprotect 2>/dev/null; then
+            echo "✅ Created global symlink: pyprotect"
+            echo "   You can now use 'pyprotect' from anywhere!"
+        else
+            echo "⚠️  Could not create global symlink (need sudo permissions)"
+            echo "   Package installation will create 'pyprotect' command instead"
+        fi
     else
-        echo "⚠️  Could not create global symlink (need sudo permissions)"
-        echo "   You can still use: $SCRIPT_PATH"
-        echo ""
-        echo "   To create global symlink manually:"
-        echo "   sudo ln -sf $SCRIPT_PATH /usr/local/bin/pyprotect"
+        echo "✅ Package structure detected"
+        echo "   'pyprotect' command will be available after package installation"
     fi
 else
-    echo "❌ pyprotect.py not found in current directory"
+    echo "❌ PyProtect source not found"
+    echo "   Expected: src/pyprotect/cli.py or pyprotect.py"
     exit 1
 fi
 

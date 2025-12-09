@@ -17,18 +17,26 @@ try {
 
 # Get the current directory
 $SCRIPT_DIR = $PSScriptRoot
-$PYPROTECT_PATH = Join-Path $SCRIPT_DIR "pyprotect.py"
 
-# Check if pyprotect.py exists
-if (-not (Test-Path $PYPROTECT_PATH)) {
-    Write-Host "ERROR: pyprotect.py not found in current directory" -ForegroundColor Red
+# Check for new package structure or old structure
+$NEW_STRUCTURE = Test-Path (Join-Path $SCRIPT_DIR "src\pyprotect\cli.py")
+$OLD_STRUCTURE = Test-Path (Join-Path $SCRIPT_DIR "pyprotect.py")
+
+if (-not $NEW_STRUCTURE -and -not $OLD_STRUCTURE) {
+    Write-Host "ERROR: PyProtect source not found" -ForegroundColor Red
+    Write-Host "Expected: src\pyprotect\cli.py or pyprotect.py" -ForegroundColor Yellow
     exit 1
 }
 
-Write-Host "Found pyprotect.py" -ForegroundColor Green
-
-# Create wrapper batch file (for Command Prompt)
-$batchContent = @"
+if ($NEW_STRUCTURE) {
+    Write-Host "Found new package structure (src/pyprotect/)" -ForegroundColor Green
+    Write-Host "Package installation will create 'pyprotect' command" -ForegroundColor Gray
+} else {
+    Write-Host "Found legacy structure (pyprotect.py)" -ForegroundColor Green
+    
+    # Create wrapper batch file (for Command Prompt) - backward compatibility
+    $PYPROTECT_PATH = Join-Path $SCRIPT_DIR "pyprotect.py"
+    $batchContent = @"
 @echo off
 REM PyProtect wrapper - tries multiple methods to find Python
 setlocal enabledelayedexpansion
@@ -51,12 +59,12 @@ echo.
 echo You can also run directly: python "%~dp0pyprotect.py" [options]
 exit /b 1
 "@
-$batchPath = Join-Path $SCRIPT_DIR "pyprotect.bat"
-$batchContent | Out-File -FilePath $batchPath -Encoding ASCII
-Write-Host "Created pyprotect.bat wrapper" -ForegroundColor Green
+    $batchPath = Join-Path $SCRIPT_DIR "pyprotect.bat"
+    $batchContent | Out-File -FilePath $batchPath -Encoding ASCII
+    Write-Host "Created pyprotect.bat wrapper (legacy)" -ForegroundColor Green
 
-# Create PowerShell wrapper (for PowerShell - preferred)
-$psContent = @"
+    # Create PowerShell wrapper (for PowerShell - preferred)
+    $psContent = @"
 # PyProtect PowerShell Wrapper
 param(
     [Parameter(ValueFromRemainingArguments=`$true)]
@@ -89,9 +97,10 @@ else {
 # Run pyprotect.py with arguments
 & `$pythonCmd `$pyprotectPath `$Arguments
 "@
-$psPath = Join-Path $SCRIPT_DIR "pyprotect.ps1"
-$psContent | Out-File -FilePath $psPath -Encoding UTF8
-Write-Host "Created pyprotect.ps1 wrapper" -ForegroundColor Green
+    $psPath = Join-Path $SCRIPT_DIR "pyprotect.ps1"
+    $psContent | Out-File -FilePath $psPath -Encoding UTF8
+    Write-Host "Created pyprotect.ps1 wrapper (legacy)" -ForegroundColor Green
+}
 
 # Try to add to user PATH
 Write-Host ""
@@ -143,7 +152,12 @@ Write-Host "  pyprotect -i project\ -b" -ForegroundColor White
 Write-Host "  pyprotect -m  # Check machine ID" -ForegroundColor White
 Write-Host "  pyprotect -c  # Check license status" -ForegroundColor White
 Write-Host ""
-Write-Host "IMPORTANT: Restart your terminal to use the pyprotect command" -ForegroundColor Yellow
-Write-Host "Or use: python $PYPROTECT_PATH [options]" -ForegroundColor Gray
+if ($NEW_STRUCTURE) {
+    Write-Host "IMPORTANT: Restart your terminal to use the pyprotect command" -ForegroundColor Yellow
+    Write-Host "The 'pyprotect' command will be available after package installation" -ForegroundColor Gray
+} else {
+    Write-Host "IMPORTANT: Restart your terminal to use the pyprotect command" -ForegroundColor Yellow
+    Write-Host "Or use: python pyprotect.py [options]" -ForegroundColor Gray
+}
 Write-Host ""
 Write-Host "Run pyprotect --help for full documentation" -ForegroundColor Cyan

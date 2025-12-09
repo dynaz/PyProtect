@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
 Setup script for PyProtect
+Supports both legacy setup.py and modern pyproject.toml
 """
 
 from setuptools import setup, find_packages
+from pathlib import Path
 
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+# Read README for long description
+readme_file = Path(__file__).parent / "README.md"
+long_description = readme_file.read_text(encoding="utf-8") if readme_file.exists() else ""
 
 setup(
     name="pyprotect",
@@ -16,8 +19,15 @@ setup(
     description="Advanced Python code obfuscator with machine ID binding",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/your-repo/pyprotect",
-    packages=find_packages(),
+    url="https://github.com/dynaz/PyProtect",
+    package_dir={"": "src"},
+    packages=find_packages(where="src"),
+    python_requires=">=3.6",
+    entry_points={
+        "console_scripts": [
+            "pyprotect=pyprotect.cli:main",
+        ],
+    },
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
@@ -34,11 +44,10 @@ setup(
         "Topic :: Security",
         "Topic :: Software Development :: Build Tools",
     ],
-    python_requires=">=3.6",
     keywords="obfuscation security protection python code",
     project_urls={
-        "Bug Reports": "https://github.com/your-repo/pyprotect/issues",
-        "Source": "https://github.com/your-repo/pyprotect",
-        "Documentation": "https://pyprotect.readthedocs.io/",
+        "Bug Reports": "https://github.com/dynaz/PyProtect/issues",
+        "Source": "https://github.com/dynaz/PyProtect",
+        "Documentation": "https://github.com/dynaz/PyProtect#readme",
     },
 )
