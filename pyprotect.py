@@ -221,10 +221,29 @@ def verify_license_key(license_key):
     except Exception as e:
         return False, f"License verification error: {e}"
 
+class FieldCollector(ast.NodeVisitor):
+    """Collect all Odoo field names before obfuscation"""
+    
+    def __init__(self):
+        self.field_names = set()
+    
+    def visit_Assign(self, node):
+        """Detect Odoo field assignments"""
+        if isinstance(node.value, ast.Call):
+            if isinstance(node.value.func, ast.Attribute):
+                if isinstance(node.value.func.value, ast.Name):
+                    if node.value.func.value.id == 'fields':
+                        # This is an Odoo field assignment
+                        for target in node.targets:
+                            if isinstance(target, ast.Name):
+                                self.field_names.add(target.id)
+        self.generic_visit(node)
+
+
 class Obfuscator(ast.NodeTransformer):
     """AST-based obfuscator with advanced complexity"""
 
-    def __init__(self):
+    def __init__(self, odoo_field_names=None):
         self.var_count = 0
         self.func_count = 0
         self.class_count = 0
@@ -232,6 +251,32 @@ class Obfuscator(ast.NodeTransformer):
         self.func_map = {}
         self.class_map = {}
         self.strings = []
+        
+        # Odoo-specific reserved attributes that must not be obfuscated
+        self.odoo_reserved = {
+            # Model definition attributes
+            '_name', '_description', '_inherit', '_inherits', '_rec_name',
+            '_order', '_sql_constraints', '_constraints', '_auto', '_table',
+            '_table_query', '_sequence', '_parent_name', '_parent_store',
+            '_date_name', '_fold_name', '_abstract', '_transient', '_log_access',
+            '_check_company_auto',
+            # Model lifecycle methods
+            '_register_hook', '_setup_complete', '_constraint_methods',
+            # Field-related attributes
+            '_columns', '_defaults', '_rec_name', '_order',
+            # Technical attributes
+            'env', 'id', 'ids', '_context', '_cr', '_uid',
+            # Common methods that shouldn't be obfuscated
+            'create', 'write', 'unlink', 'search', 'browse', 'read',
+            'search_read', 'name_get', 'name_search', 'name_create',
+            'default_get', 'fields_get', 'fields_view_get',
+            '_compute', '_inverse', '_search', '_onchange',
+            # API decorators - these are method names typically
+            'api', 'models', 'fields', 'tools', '_',
+        }
+        
+        # Odoo field names collected from first pass
+        self.odoo_field_names = odoo_field_names or set()
 
     def generate_var_name(self):
         """Generate obfuscated variable name"""
@@ -253,6 +298,19 @@ class Obfuscator(ast.NodeTransformer):
 
     def visit_Name(self, node):
         """Obfuscate variable names"""
+        # Skip Odoo reserved attributes
+        if node.id in self.odoo_reserved:
+            return node
+        
+        # Skip Odoo field names
+        if node.id in self.odoo_field_names:
+            return node
+        
+        # Skip UPPERCASE_CONSTANTS (Python convention for public module-level constants)
+        # These are often imported by other modules
+        if node.id.isupper() and '_' in node.id:
+            return node
+            
         if isinstance(node.ctx, ast.Store):
             if node.id not in self.var_map:
                 self.var_map[node.id] = self.generate_var_name()
@@ -270,7 +328,10 @@ class Obfuscator(ast.NodeTransformer):
         """Obfuscate attribute access (including method calls)"""
         # Obfuscate attribute names if they are methods or known attributes
         if hasattr(node, 'attr'):
-            if node.attr in self.func_map:
+            # Skip Odoo reserved attributes
+            if node.attr in self.odoo_reserved:
+                pass
+            elif node.attr in self.func_map:
                 node.attr = self.func_map[node.attr]
             # Don't obfuscate 'self' or other common attributes
             elif node.attr not in ['self', '__name__', '__file__', '__init__']:
@@ -656,8 +717,12 @@ def obfuscate_file_single(input_file, output_file, machine_id=None, license_key=
             # Parse AST
             tree = ast.parse(source, filename=str(input_file))
 
-            # Apply obfuscation
-            obfuscator = Obfuscator()
+            # First pass: collect Odoo field names
+            collector = FieldCollector()
+            collector.visit(tree)
+            
+            # Second pass: apply obfuscation with collected field names
+            obfuscator = Obfuscator(odoo_field_names=collector.field_names)
             obfuscated_tree = obfuscator.visit(tree)
             # Generate runtime code with strings and license
             strings_repr = repr(obfuscator.strings)
@@ -732,8 +797,12 @@ def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=
         # Parse AST
         tree = ast.parse(source, filename=input_file)
 
-        # Apply obfuscation
-        obfuscator = Obfuscator()
+        # First pass: collect Odoo field names
+        collector = FieldCollector()
+        collector.visit(tree)
+        
+        # Second pass: apply obfuscation with collected field names
+        obfuscator = Obfuscator(odoo_field_names=collector.field_names)
         obfuscated_tree = obfuscator.visit(tree)
         # Generate runtime code with strings and license
         strings_repr = repr(obfuscator.strings)
