@@ -70,7 +70,7 @@ from odoo.addons.spreadsheet.utils.formatting import strftime_format_to_spreadsh
 ### Example 1: Obfuscate Odoo Addon
 ```bash
 # Obfuscate a custom Odoo addon with machine binding
-pyprotect -i /odoo18/addons/my_custom_addon/ -o /dist/my_custom_addon/ --bind-machine
+pyprotect -i /odoo18/addons/my_custom_addon/ -o /dist/my_custom_addon/ -b
 
 # Output shows:
 # ✅ Preserved N public API names (importable)
@@ -81,7 +81,7 @@ pyprotect -i /odoo18/addons/my_custom_addon/ -o /dist/my_custom_addon/ --bind-ma
 ### Example 2: Obfuscate Entire Odoo Server
 ```bash
 # You can now obfuscate the entire Odoo server if needed
-pyprotect -i /odoo18/odoo18-server/ -o /dist/odoo-protected/ --bind-machine
+pyprotect -i /odoo18/odoo18-server/ -o /dist/odoo-protected/ -b
 
 # This preserves all public APIs across all modules
 ```

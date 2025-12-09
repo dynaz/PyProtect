@@ -164,13 +164,13 @@ format_str → _obf_1
 ### For Odoo (Recommended)
 ```bash
 # Default behavior - public API preserved
-pyprotect -i /odoo18/addons/my_addon/ -o /dist/my_addon/ --bind-machine
+pyprotect -i /odoo18/addons/my_addon/ -o /dist/my_addon/ -b
 ```
 
 ### For Standalone Scripts
 ```bash
 # Full obfuscation - everything hidden
-pyprotect -i standalone.py --no-preserve-api --bind-machine
+pyprotect -i standalone.py --no-preserve-api -b
 ```
 
 ## 📊 Impact
@@ -244,8 +244,8 @@ pyprotect -i addon/ -o dist/addon/
 
 ### For Maximum Protection
 1. Obfuscate your custom Odoo addons
-2. Use machine binding (`--bind-machine`)
-3. Set appropriate expiration (`--expiration 365`)
+2. Use machine binding (`-b`)
+3. Set appropriate expiration (`-e 365`)
 4. Keep private helper functions (start with `_`) - these get fully obfuscated
 5. Test thoroughly after obfuscation
 

@@ -1056,9 +1056,9 @@ if __name__ == "__main__":
                        help="Display current machine ID and exit")
     parser.add_argument("-c", "--check-license", nargs='?', const=".",
                        help="Check license validity in directory (default: current dir)")
-    parser.add_argument("--bind-machine", action="store_true",
+    parser.add_argument("-b", "--bind-machine", action="store_true",
                        help="Bind obfuscated code to current machine")
-    parser.add_argument("--expiration", type=int, default=365,
+    parser.add_argument("-e", "--expiration", type=int, default=365,
                        help="License expiration in days (default: 365)")
     parser.add_argument("--no-preserve-api", action="store_true",
                        help="Obfuscate all names including public API (may break imports)")

@@ -232,13 +232,13 @@ git pull origin main
 
 ### Protect a Single File
 ```bash
-pyprotect -i my_script.py --bind-machine
+pyprotect -i my_script.py -b
 # Output: /dist/my_script.py (machine-bound)
 ```
 
 ### Protect an Entire Project
 ```bash
-pyprotect -i my_project/ --bind-machine --expiration 365
+pyprotect -i my_project/ -b -e 365
 # Output: /dist/my_project/ (entire project protected)
 # Note: Only use for self-contained projects without explicit cross-module imports
 ```
@@ -298,8 +298,8 @@ pyprotect -i INPUT [-o OUTPUT] [OPTIONS]
 | `-o, --output OUTPUT` | Output file or directory | `/dist/` |
 | `-m, --machine-id` | Display current machine ID | - |
 | `-c, --check-license DIR` | Check license validity in directory | Current dir |
-| `--bind-machine` | Bind code to current machine hardware | Disabled |
-| `--expiration DAYS` | License expiration in days | 365 |
+| `-b` | Bind code to current machine hardware | Disabled |
+| `-e DAYS` | License expiration in days | 365 |
 | `--no-preserve-api` | ✨ **NEW**: Obfuscate all names including public API | Disabled (API preserved) |
 
 ### 🆕 Public API Preservation (Default)
@@ -334,16 +334,16 @@ pyprotect -i sensitive_code.py -o protected.py
 ### Example 2: Machine-Bound Protection
 ```bash
 # Protect and bind to current machine for 1 year
-pyprotect -i app.py -o app_protected.py --bind-machine --expiration 365
+pyprotect -i app.py -o app_protected.py -b -e 365
 ```
 
 ### Example 3: Project Protection
 ```bash
 # Protect entire Django/Flask project (output to /dist/)
-pyprotect -i my_django_project/ --bind-machine
+pyprotect -i my_django_project/ -b
 
 # Or specify custom output directory
-pyprotect -i my_django_project/ -o protected_project/ --bind-machine
+pyprotect -i my_django_project/ -o protected_project/ -b
 ```
 
 ### Example 4: Check Machine ID
@@ -366,7 +366,7 @@ pyprotect -c /path/to/protected/app
 ### Example 6: Trial Version (30 days)
 ```bash
 # Create time-limited trial version
-pyprotect -i software.py -o trial_version.py --bind-machine --expiration 30
+pyprotect -i software.py -o trial_version.py -b -e 30
 ```
 
 ### Example 7: Obfuscating Odoo Addons (✅ Now Supported!)
@@ -375,10 +375,10 @@ pyprotect -i software.py -o trial_version.py --bind-machine --expiration 30
 # Public API names are preserved, allowing cross-module imports
 
 # Obfuscate a custom Odoo addon
-pyprotect -i /path/to/custom_addon/ -o /dist/custom_addon/ --bind-machine
+pyprotect -i /path/to/custom_addon/ -o /dist/custom_addon/ -b
 
 # Obfuscate entire Odoo server (if needed)
-pyprotect -i /odoo18/odoo18-server/addons/my_custom_addon/ --bind-machine
+pyprotect -i /odoo18/odoo18-server/addons/my_custom_addon/ -b
 
 # What gets preserved:
 # ✅ Public functions: def my_function() → preserved
@@ -596,13 +596,13 @@ Your support helps maintain and improve this open-source project! ☕
 ### Most Common Commands
 ```bash
 # Quick protection (output to /dist/)
-pyprotect -i file.py --bind-machine
+pyprotect -i file.py -b
 
 # Project protection (output to /dist/)
-pyprotect -i project/ --bind-machine
+pyprotect -i project/ -b
 
 # Trial version (30 days)
-pyprotect -i app.py -o trial.py --bind-machine --expiration 30
+pyprotect -i app.py -o trial.py -b -e 30
 
 # Check machine ID
 pyprotect -m
