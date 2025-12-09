@@ -12,8 +12,8 @@ readme_file = Path(__file__).parent / "README.md"
 long_description = readme_file.read_text(encoding="utf-8") if readme_file.exists() else ""
 
 setup(
-    name="pyprotect-th",
-    version="1.0.2",
+    name="pyprotect_th",
+    version="2.1.2",
     author="PyProtect Team",
     author_email="support@pyprotect.com",
     description="Advanced Python code obfuscator with machine ID binding",
