@@ -28,7 +28,7 @@ import shutil
 from pathlib import Path
 
 def get_default_output_path():
-    """Get the default output path relative to the PyProtect directory"""
+    """Get the default output path in PyProtect/dist directory"""
     script_dir = Path(__file__).parent.absolute()
     return script_dir / "dist"
 
@@ -262,8 +262,8 @@ def generate_runtime(machine_id=None, license_key=None):
     license_check = ""
     if license_key:
         license_check = f'''
-# License verification
-_LICENSE_KEY = "{license_key}"
+    # License verification
+    _LICENSE_KEY = "{license_key}"
 
 def _get_machine_id():
     """Generate machine identifier"""
@@ -390,18 +390,35 @@ def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_da
     # Create output directory
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Find all .py files
-    python_files = list(input_path.rglob("*.py"))
-    python_files = [f for f in python_files if not f.name.startswith("__pycache__")]
+    # Find all files (not just Python files)
+    all_files = []
+    for root, dirs, files in os.walk(input_path):
+        # Skip __pycache__ directories
+        dirs[:] = [d for d in dirs if not d.startswith('__pycache__')]
+        for file in files:
+            file_path = Path(root) / file
+            rel_path = file_path.relative_to(input_path)
+            all_files.append((file_path, rel_path))
 
-    if not python_files:
-        print("❌ No Python files found in the directory")
+    if not all_files:
+        print("❌ No files found in the directory")
         return False
 
-    print(f"📋 Found {len(python_files)} Python files to obfuscate:")
-    for py_file in python_files:
-        rel_path = py_file.relative_to(input_path)
-        print(f"   • {rel_path}")
+    # Separate Python and non-Python files
+    python_files = [(fp, rp) for fp, rp in all_files if fp.suffix == '.py']
+    non_python_files = [(fp, rp) for fp, rp in all_files if fp.suffix != '.py']
+
+    print(f"📋 Found {len(all_files)} total files:")
+    print(f"   • {len(python_files)} Python files to obfuscate")
+    print(f"   • {len(non_python_files)} other files to copy")
+    if python_files:
+        print("   📝 Python files:")
+        for _, rel_path in python_files:
+            print(f"      • {rel_path}")
+    if non_python_files:
+        print("   📄 Other files:")
+        for _, rel_path in non_python_files:
+            print(f"      • {rel_path}")
     print()
 
     # Generate machine ID and license once for the whole project
@@ -428,10 +445,12 @@ def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_da
         print(f"💾 Project license saved to: {license_file}")
         print()
 
-    # Obfuscate each file
-    obfuscated_files = []
-    for py_file in python_files:
-        rel_path = py_file.relative_to(input_path)
+    # Process all files
+    processed_files = []
+    copied_files = []
+
+    # Process Python files (obfuscate)
+    for file_path, rel_path in python_files:
         output_file = output_path / rel_path
 
         # Create output subdirectory if needed
@@ -441,22 +460,42 @@ def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_da
 
         try:
             # Use the same machine_id and license_key for all files in the project
-            success = obfuscate_file_single(py_file, output_file, machine_id, license_key)
+            success = obfuscate_file_single(file_path, output_file, machine_id, license_key)
             if success:
-                obfuscated_files.append(rel_path)
+                processed_files.append(rel_path)
                 print(f"   ✅ {rel_path}")
             else:
                 print(f"   ❌ Failed: {rel_path}")
         except Exception as e:
             print(f"   ❌ Error: {rel_path} - {e}")
 
+    # Process non-Python files (copy as-is)
+    for file_path, rel_path in non_python_files:
+        output_file = output_path / rel_path
+
+        # Create output subdirectory if needed
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        print(f"📄 Copying: {rel_path}")
+
+        try:
+            shutil.copy2(file_path, output_file)
+            copied_files.append(rel_path)
+            print(f"   ✅ {rel_path}")
+        except Exception as e:
+            print(f"   ❌ Error: {rel_path} - {e}")
+
     print()
-    print(f"🎉 Directory obfuscation complete!")
-    print(f"   📊 Files processed: {len(obfuscated_files)}/{len(python_files)}")
+    print(f"🎉 Directory processing complete!")
+    print(f"   📊 Python files obfuscated: {len(processed_files)}/{len(python_files)}")
+    print(f"   📄 Other files copied: {len(copied_files)}/{len(non_python_files)}")
+    print(f"   📦 Total files processed: {len(processed_files) + len(copied_files)}/{len(all_files)}")
 
     if bind_machine:
         print(f"   🔒 Machine binding: ENABLED (ID: {machine_id[:16]}...)")
         print(f"   ⏰ License expires: {time.ctime(expiration)}")
+    else:
+        print(f"   🔓 Machine binding: DISABLED")
 
     return True
 
@@ -579,7 +618,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--input",
                        help="Input Python file or directory (not needed with -m)")
     parser.add_argument("-o", "--output", default=str(get_default_output_path()),
-                       help="Output obfuscated file or directory (default: PyProtect/dist/filename or PyProtect/dist/inputdir)")
+                       help="Output obfuscated file or directory (default: PyProtect/dist/filename or PyProtect/dist/inputname/)")
     parser.add_argument("-m", "--machine-id", action="store_true",
                        help="Display current machine ID and exit")
     parser.add_argument("-c", "--check-license", nargs='?', const=".",
@@ -622,15 +661,14 @@ if __name__ == "__main__":
 
     # Determine output path
     default_dist_path = get_default_output_path()
-    if args.output == str(default_dist_path):
-        if input_path.is_dir():
-            # Directory input -> create PyProtect/dist/input_dirname
-            output_path = default_dist_path / input_path.name
-        else:
-            # File input -> create PyProtect/dist/filename
-            output_path = default_dist_path / input_path.name
+    resolved_output = Path(args.output).absolute()
+
+    if input_path.is_dir():
+        # Directory input -> always create input_dirname subdirectory
+        output_path = resolved_output / input_path.name
     else:
-        output_path = Path(args.output)
+        # File input -> create filename in output directory
+        output_path = resolved_output / input_path.name
 
     try:
         if input_path.is_dir():
