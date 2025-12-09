@@ -1,4 +1,10 @@
-# PyProtect PyPI Publishing Script (PowerShell)
+# PyProtect PyPI Publishing Script with Token (PowerShell)
+# Use this if .pypirc authentication doesn't work
+
+param(
+    [Parameter(Mandatory=$false)]
+    [string]$Token
+)
 
 Write-Host "Publishing PyProtect to PyPI" -ForegroundColor Cyan
 Write-Host "================================" -ForegroundColor Cyan
@@ -44,27 +50,24 @@ if ($confirm -ne "y" -and $confirm -ne "Y") {
     exit 0
 }
 
+# Set up authentication
+if ($Token) {
+    Write-Host ""
+    Write-Host "Using provided token..." -ForegroundColor Yellow
+    $env:TWINE_USERNAME = "__token__"
+    $env:TWINE_PASSWORD = $Token
+} else {
+    Write-Host ""
+    Write-Host "Token not provided. Options:" -ForegroundColor Yellow
+    Write-Host "1. Enter token when prompted" -ForegroundColor Cyan
+    Write-Host "2. Cancel and run: .\publish_with_token.ps1 -Token 'your-token-here'" -ForegroundColor Cyan
+    Write-Host ""
+}
+
 # Upload to PyPI
 Write-Host ""
 Write-Host "Uploading to PyPI..." -ForegroundColor Yellow
-
-# Try to upload - if .pypirc doesn't work, it will prompt for credentials
-$uploadResult = python -m twine upload dist/* 2>&1
-$uploadExitCode = $LASTEXITCODE
-
-if ($uploadExitCode -ne 0) {
-    Write-Host ""
-    Write-Host "Upload failed. Trying alternative authentication..." -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "You can also upload manually with:" -ForegroundColor Cyan
-    Write-Host "  python -m twine upload dist/*" -ForegroundColor White
-    Write-Host ""
-    Write-Host "Or set environment variables:" -ForegroundColor Cyan
-    Write-Host "  `$env:TWINE_USERNAME = '__token__'" -ForegroundColor White
-    Write-Host "  `$env:TWINE_PASSWORD = 'your-token-here'" -ForegroundColor White
-    Write-Host "  python -m twine upload dist/*" -ForegroundColor White
-    exit $uploadExitCode
-}
+python -m twine upload dist/*
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host ""
@@ -74,11 +77,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "View at: https://pypi.org/project/pyprotect-th/" -ForegroundColor Cyan
 } else {
     Write-Host ""
-    Write-Host "Upload failed. Try using environment variables:" -ForegroundColor Red
-    Write-Host "  `$env:TWINE_USERNAME = '__token__'" -ForegroundColor Yellow
-    Write-Host "  `$env:TWINE_PASSWORD = 'your-token-here'" -ForegroundColor Yellow
-    Write-Host "  python -m twine upload dist/*" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Or use: .\publish_with_token.ps1 -Token 'your-token-here'" -ForegroundColor Cyan
+    Write-Host "Upload failed. Check your token and try again." -ForegroundColor Red
+    exit 1
 }
 
