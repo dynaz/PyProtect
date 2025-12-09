@@ -228,6 +228,8 @@ git pull origin main
 
 ## 🚀 Quick Start
 
+> **✅ NEW**: PyProtect now supports **Odoo and framework obfuscation**! Public API names (functions and classes that don't start with `_`) are automatically preserved, allowing cross-module imports to work correctly.
+
 ### Protect a Single File
 ```bash
 pyprotect -i my_script.py --bind-machine
@@ -238,6 +240,7 @@ pyprotect -i my_script.py --bind-machine
 ```bash
 pyprotect -i my_project/ --bind-machine --expiration 365
 # Output: /dist/my_project/ (entire project protected)
+# Note: Only use for self-contained projects without explicit cross-module imports
 ```
 
 ### Test Protection
@@ -264,6 +267,21 @@ pyprotect -i INPUT [-o OUTPUT] [OPTIONS]
 
 **Note**: After installation with `./install.sh`, you can use `pyprotect` from anywhere. Alternatively, use `python3 pyprotect.py` if running directly.
 
+### ✅ Recommended Use Cases
+- **Odoo Addons**: Custom Odoo modules and addons (✅ NEW: Fully supported!)
+- **Django/Flask Apps**: Web applications with multiple modules (✅ NEW: Cross-module imports work!)
+- **Standalone Scripts**: Single-file Python applications
+- **Final Applications**: Complete apps with public APIs
+- **Closed Systems**: Scripts running in controlled environments
+- **CLI Tools**: Command-line utilities
+- **Custom Business Logic**: Proprietary algorithms and business rules
+- **Framework Plugins**: Plugins and extensions for existing frameworks
+
+### ⚠️ Use With Caution For
+- **Open-source Contributions**: Code that others need to read and maintain
+- **Debugging Required**: Code still in active development (harder to debug obfuscated code)
+- **Python Libraries**: Public packages on PyPI (users expect readable source code)
+
 ### Input Types
 - **Single File**: `script.py`
 - **Directory**: `myproject/` (processes all `.py` files recursively)
@@ -282,6 +300,25 @@ pyprotect -i INPUT [-o OUTPUT] [OPTIONS]
 | `-c, --check-license DIR` | Check license validity in directory | Current dir |
 | `--bind-machine` | Bind code to current machine hardware | Disabled |
 | `--expiration DAYS` | License expiration in days | 365 |
+| `--no-preserve-api` | ✨ **NEW**: Obfuscate all names including public API | Disabled (API preserved) |
+
+### 🆕 Public API Preservation (Default)
+
+By default, PyProtect preserves public API names to allow cross-module imports:
+
+- **Preserved**: Public functions/classes (no leading `_`)
+- **Obfuscated**: Private functions/classes (leading `_`)
+- **Preserved**: Odoo-specific attributes (`_name`, `_inherit`, `create`, etc.)
+- **Compatible**: Works with Odoo, Django, Flask, and other frameworks
+
+**Example**:
+```bash
+# Default: Preserves public API (Odoo/Framework compatible)
+pyprotect -i my_odoo_addon/
+
+# Full obfuscation: May break imports
+pyprotect -i standalone_script.py --no-preserve-api
+```
 
 ## 💡 Examples
 
@@ -330,6 +367,30 @@ pyprotect -c /path/to/protected/app
 ```bash
 # Create time-limited trial version
 pyprotect -i software.py -o trial_version.py --bind-machine --expiration 30
+```
+
+### Example 7: Obfuscating Odoo Addons (✅ Now Supported!)
+```bash
+# ✅ NEW: Obfuscating Odoo addons now works correctly!
+# Public API names are preserved, allowing cross-module imports
+
+# Obfuscate a custom Odoo addon
+pyprotect -i /path/to/custom_addon/ -o /dist/custom_addon/ --bind-machine
+
+# Obfuscate entire Odoo server (if needed)
+pyprotect -i /odoo18/odoo18-server/addons/my_custom_addon/ --bind-machine
+
+# What gets preserved:
+# ✅ Public functions: def my_function() → preserved
+# ✅ Public classes: class MyClass → preserved  
+# ✅ Public methods: def method() → preserved
+# ✅ Odoo model attributes: _name, _inherit, create, write, etc.
+# ⚙️ Private functions: def _helper() → obfuscated to _fn_0
+# ⚙️ Variables: user_input → obfuscated to _obf_0
+
+# Test after obfuscation:
+cd /dist/custom_addon
+python3 -m odoo  # Should work! ✅
 ```
 
 ## 🔒 Security Features
@@ -399,19 +460,45 @@ PyProtect/
 ## ⚠️ Limitations
 
 ### Current Limitations
-- **F-string Support**: Files containing f-strings may fail (working on fix)
 - **Complex Metaclasses**: Advanced Python patterns may need adjustment
 - **Dynamic Imports**: `importlib` and dynamic imports may require special handling
 - **Third-party Libraries**: Some libraries may not work with obfuscated code
 
+### Public API Preservation (Default Behavior)
+- **✅ Framework Compatible**: By default, PyProtect preserves public API names (functions/classes not starting with `_`)
+- **✅ Cross-Module Imports**: `from module import function_name` works correctly after obfuscation
+- **✅ Odoo Compatible**: Tested and working with Odoo's module system
+- **Option**: Use `--no-preserve-api` flag for full obfuscation (may break imports)
+
 ### Known Issues
-- Files with f-strings (f"{variable}") may cause parsing errors
 - Very large files (>10MB) may be slow to process
 - Some debugging tools may not work with obfuscated code
 
 ## 🔧 Troubleshooting
 
 ### Common Issues
+
+#### "ImportError: cannot import name 'function_name' from 'module'" (FIXED!)
+**Status**: ✅ **RESOLVED** - This issue is now fixed in the latest version!
+
+**Solution**: PyProtect now automatically preserves public API names (functions and classes that don't start with `_`), so cross-module imports work correctly by default.
+
+**How it works**:
+```python
+# Public functions (no leading _) are preserved:
+def strftime_format_to_spreadsheet_date_format(fmt):  # Name preserved ✅
+    return _internal_helper(fmt)  # Private function obfuscated ✅
+
+# After obfuscation, you can still import:
+from module import strftime_format_to_spreadsheet_date_format  # Works! ✅
+```
+
+**Advanced Option**: If you need full obfuscation (which may break imports), use:
+```bash
+pyprotect -i mycode.py --no-preserve-api
+```
+
+**Best Practice**: Keep default behavior for Odoo/framework code. Only use `--no-preserve-api` for standalone scripts where no imports are needed.
 
 #### "SyntaxError: invalid syntax"
 **Cause**: F-strings or advanced Python syntax not supported

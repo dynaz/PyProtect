@@ -221,11 +221,19 @@ def verify_license_key(license_key):
     except Exception as e:
         return False, f"License verification error: {e}"
 
-class FieldCollector(ast.NodeVisitor):
-    """Collect all Odoo field names before obfuscation"""
+class NameCollector(ast.NodeVisitor):
+    """Collect all Odoo field names and method names before obfuscation"""
     
     def __init__(self):
         self.field_names = set()
+        self.method_names = {}  # Map method names to whether they should be obfuscated
+        self.odoo_method_patterns = [
+            '_compute_', '_inverse_', '_search_', '_onchange_',
+            '_depends_', '_constraint_', '_sql_constraint_',
+            'action_', 'button_',
+            '_get_', '_set_', '_check_', '_prepare_',
+            '_create_', '_write_', '_update_', '_default_',
+        ]
     
     def visit_Assign(self, node):
         """Detect Odoo field assignments"""
@@ -238,12 +246,24 @@ class FieldCollector(ast.NodeVisitor):
                             if isinstance(target, ast.Name):
                                 self.field_names.add(target.id)
         self.generic_visit(node)
+    
+    def visit_FunctionDef(self, node):
+        """Collect all function/method names"""
+        # Check if this method matches Odoo patterns that should be preserved
+        should_preserve = False
+        for pattern in self.odoo_method_patterns:
+            if pattern in node.name:
+                should_preserve = True
+                break
+        
+        self.method_names[node.name] = should_preserve
+        self.generic_visit(node)
 
 
 class Obfuscator(ast.NodeTransformer):
     """AST-based obfuscator with advanced complexity"""
 
-    def __init__(self, odoo_field_names=None):
+    def __init__(self, odoo_field_names=None, collected_methods=None, preserve_public_api=True):
         self.var_count = 0
         self.func_count = 0
         self.class_count = 0
@@ -251,6 +271,12 @@ class Obfuscator(ast.NodeTransformer):
         self.func_map = {}
         self.class_map = {}
         self.strings = []
+        self.preserve_public_api = preserve_public_api  # New flag to preserve public APIs
+        self.module_level_depth = 0  # Track if we're at module level
+        self.public_names = set()  # Track public function/class names
+        self.in_public_class = False  # Track if we're inside a public class
+        self.in_fstring = False  # Track if we're inside an f-string
+        self.collected_methods = collected_methods or {}  # Pre-collected method names
         
         # Odoo-specific reserved attributes that must not be obfuscated
         self.odoo_reserved = {
@@ -270,13 +296,41 @@ class Obfuscator(ast.NodeTransformer):
             'create', 'write', 'unlink', 'search', 'browse', 'read',
             'search_read', 'name_get', 'name_search', 'name_create',
             'default_get', 'fields_get', 'fields_view_get',
-            '_compute', '_inverse', '_search', '_onchange',
             # API decorators - these are method names typically
             'api', 'models', 'fields', 'tools', '_',
         }
         
+        # Odoo method name patterns that must be preserved
+        # These are called from other modules or referenced by string
+        self.odoo_method_patterns = [
+            '_compute_',  # compute='_compute_field_name'
+            '_inverse_',  # inverse='_inverse_field_name'
+            '_search_',   # search='_search_field_name'
+            '_onchange_', # onchange methods
+            '_depends_',  # depends methods
+            '_constraint_', # constraint methods
+            '_sql_constraint_', # SQL constraints
+            'action_',    # action methods (often called from XML)
+            'button_',    # button methods (called from XML)
+            '_get_',      # getter methods (often part of public API)
+            '_set_',      # setter methods (often part of public API)
+            '_check_',    # validation methods
+            '_prepare_',  # preparation methods
+            '_create_',   # creation helper methods
+            '_write_',    # write helper methods
+            '_update_',   # update helper methods
+            '_default_',  # default value methods
+        ]
+        
         # Odoo field names collected from first pass
         self.odoo_field_names = odoo_field_names or set()
+        
+        # Pre-populate func_map with methods that will be obfuscated
+        # This handles forward references (method A calls method B defined later)
+        for method_name, should_preserve in self.collected_methods.items():
+            if not should_preserve:
+                # This method will be obfuscated, pre-assign it an obfuscated name
+                self.func_map[method_name] = self.generate_func_name()
 
     def generate_var_name(self):
         """Generate obfuscated variable name"""
@@ -328,8 +382,18 @@ class Obfuscator(ast.NodeTransformer):
         """Obfuscate attribute access (including method calls)"""
         # Obfuscate attribute names if they are methods or known attributes
         if hasattr(node, 'attr'):
+            # Check if this attribute is accessed via super()
+            # super() calls should NEVER be obfuscated because they reference parent class methods
+            is_super_call = False
+            if isinstance(node.value, ast.Call):
+                if isinstance(node.value.func, ast.Name) and node.value.func.id == 'super':
+                    is_super_call = True
+            
+            if is_super_call:
+                # Don't obfuscate super().method_name() calls
+                pass
             # Skip Odoo reserved attributes
-            if node.attr in self.odoo_reserved:
+            elif node.attr in self.odoo_reserved:
                 pass
             elif node.attr in self.func_map:
                 node.attr = self.func_map[node.attr]
@@ -342,12 +406,47 @@ class Obfuscator(ast.NodeTransformer):
         return node
 
     def visit_FunctionDef(self, node):
-        """Obfuscate function names (skip special methods)"""
+        """Obfuscate function names (skip special methods and public API)"""
+        should_obfuscate = True
+        
         # Skip special methods like __init__, __str__, etc.
-        if not node.name.startswith('__') or not node.name.endswith('__'):
+        if node.name.startswith('__') and node.name.endswith('__'):
+            should_obfuscate = False
+        
+        # Skip Odoo reserved methods
+        if node.name in self.odoo_reserved:
+            should_obfuscate = False
+        
+        # NEW: Skip Odoo method patterns (compute, inverse, search, onchange, etc.)
+        # These are referenced by string in field definitions and must keep their names
+        for pattern in self.odoo_method_patterns:
+            if pattern in node.name:
+                should_obfuscate = False
+                break
+        
+        # NEW: Skip public API functions at module level (don't start with _)
+        # This preserves functions that can be imported: from module import function_name
+        if self.preserve_public_api and self.module_level_depth == 0:
+            if not node.name.startswith('_'):
+                should_obfuscate = False
+                self.public_names.add(node.name)
+        
+        # NEW: Also preserve public methods inside public classes
+        # This allows code to call methods on imported classes
+        if self.preserve_public_api and self.in_public_class:
+            if not node.name.startswith('_'):
+                should_obfuscate = False
+        
+        # Obfuscate the function name if needed
+        if should_obfuscate:
             if node.name not in self.func_map:
                 self.func_map[node.name] = self.generate_func_name()
             node.name = self.func_map[node.name]
+        else:
+            # If we decide NOT to obfuscate, remove from func_map if it was pre-populated
+            # This prevents calls to this function from being obfuscated
+            if node.name in self.func_map:
+                del self.func_map[node.name]
 
         # Obfuscate argument names (skip 'self')
         for arg in node.args.args:
@@ -355,22 +454,57 @@ class Obfuscator(ast.NodeTransformer):
                 self.var_map[arg.arg] = self.generate_var_name()
             arg.arg = self.var_map.get(arg.arg, arg.arg)
 
+        # Increase depth before visiting function body
+        self.module_level_depth += 1
         # Recursively visit the function body
         self.generic_visit(node)
+        # Decrease depth after visiting
+        self.module_level_depth -= 1
+        
         return node
 
     def visit_ClassDef(self, node):
-        """Obfuscate class names"""
-        if node.name not in self.class_map:
-            self.class_map[node.name] = self.generate_class_name()
-        node.name = self.class_map[node.name]
+        """Obfuscate class names (preserve public API classes)"""
+        should_obfuscate = True
+        is_public_class = False
+        
+        # NEW: Skip public API classes at module level (don't start with _)
+        # This preserves classes that can be imported: from module import ClassName
+        if self.preserve_public_api and self.module_level_depth == 0:
+            if not node.name.startswith('_'):
+                should_obfuscate = False
+                is_public_class = True
+                self.public_names.add(node.name)
+        
+        # Obfuscate the class name if needed
+        if should_obfuscate:
+            if node.name not in self.class_map:
+                self.class_map[node.name] = self.generate_class_name()
+            node.name = self.class_map[node.name]
 
+        # Track if we're in a public class
+        old_in_public_class = self.in_public_class
+        if is_public_class:
+            self.in_public_class = True
+        
+        # Increase depth before visiting class body
+        self.module_level_depth += 1
         # Recursively visit the class body
         self.generic_visit(node)
+        # Decrease depth after visiting
+        self.module_level_depth -= 1
+        
+        # Restore the previous state
+        self.in_public_class = old_in_public_class
+        
         return node
 
     def visit_Constant(self, node):
-        """Encrypt string literals"""
+        """Encrypt string literals (skip if inside f-string)"""
+        # Don't encrypt strings inside f-strings as it creates invalid AST
+        if self.in_fstring:
+            return node
+            
         if isinstance(node.value, str) and len(node.value) > 3:  # Only encrypt longer strings
             # Skip encryption for strings that contain Python code or suspicious patterns
             # as these might be used with ast.literal_eval or cause parsing issues
@@ -421,9 +555,68 @@ class Obfuscator(ast.NodeTransformer):
 
 
     def visit_JoinedStr(self, node):
-        """Handle f-strings - skip obfuscation for now to avoid AST errors"""
-        # For now, don't obfuscate f-strings to prevent JoinedStr parsing issues
-        # F-strings can contain complex expressions that are hard to obfuscate safely
+        """Handle f-strings - obfuscate variable names but don't encrypt literals"""
+        # Mark that we're inside an f-string to prevent string encryption
+        old_in_fstring = self.in_fstring
+        self.in_fstring = True
+        
+        # Visit the expressions inside the f-string to obfuscate variable names
+        # This ensures that f'{variable}' uses the obfuscated variable name
+        self.generic_visit(node)
+        
+        # Restore the previous state
+        self.in_fstring = old_in_fstring
+        return node
+    
+    def visit_ListComp(self, node):
+        """Handle list comprehensions - obfuscate loop variables"""
+        return self._visit_comprehension(node)
+    
+    def visit_DictComp(self, node):
+        """Handle dict comprehensions - obfuscate loop variables"""
+        return self._visit_comprehension(node)
+    
+    def visit_SetComp(self, node):
+        """Handle set comprehensions - obfuscate loop variables"""
+        return self._visit_comprehension(node)
+    
+    def visit_GeneratorExp(self, node):
+        """Handle generator expressions - obfuscate loop variables"""
+        return self._visit_comprehension(node)
+    
+    def _visit_comprehension(self, node):
+        """Common logic for all comprehension types"""
+        # Save current var_map state
+        saved_var_map = self.var_map.copy()
+        
+        # First, process the generators to establish loop variable mappings
+        for generator in node.generators:
+            # Visit the target (loop variable) - this adds it to var_map
+            if isinstance(generator.target, ast.Name):
+                if generator.target.id not in self.var_map:
+                    self.var_map[generator.target.id] = self.generate_var_name()
+                generator.target.id = self.var_map[generator.target.id]
+            else:
+                # Handle tuple unpacking in comprehensions: for (a, b) in items
+                self.visit(generator.target)
+            
+            # Visit the iterator (what we're looping over)
+            generator.iter = self.visit(generator.iter)
+            
+            # Visit any filter conditions
+            generator.ifs = [self.visit(condition) for condition in generator.ifs]
+        
+        # Now visit the element/key/value expressions with the loop variables in var_map
+        if isinstance(node, ast.DictComp):
+            node.key = self.visit(node.key)
+            node.value = self.visit(node.value)
+        elif isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+            node.elt = self.visit(node.elt)
+        
+        # Restore var_map (comprehension variables are local to the comprehension)
+        # But keep the changes for any outer-scope variables that were referenced
+        self.var_map = saved_var_map
+        
         return node
 
 def generate_runtime(machine_id=None, license_key=None):
@@ -566,7 +759,7 @@ def _decrypt_str(index):
 
     return runtime_code
 
-def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_days=365):
+def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_days=365, preserve_api=True):
     """Obfuscate all Python files in a directory recursively"""
     print(f"🔍 Scanning directory: {input_dir}")
     print(f"📁 Output directory: {output_dir}")
@@ -659,7 +852,7 @@ def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_da
 
         try:
             # Use the same machine_id and license_key for all files in the project
-            success = obfuscate_file_single(file_path, output_file, machine_id, license_key)
+            success = obfuscate_file_single(file_path, output_file, machine_id, license_key, preserve_api)
             if success:
                 processed_files.append(rel_path)
                 print(f"   ✅ {rel_path}")
@@ -698,7 +891,7 @@ def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_da
 
     return True
 
-def obfuscate_file_single(input_file, output_file, machine_id=None, license_key=None):
+def obfuscate_file_single(input_file, output_file, machine_id=None, license_key=None, preserve_api=True):
     """Obfuscate a single file with pre-computed license info"""
     try:
         # Read source
@@ -717,12 +910,17 @@ def obfuscate_file_single(input_file, output_file, machine_id=None, license_key=
             # Parse AST
             tree = ast.parse(source, filename=str(input_file))
 
-            # First pass: collect Odoo field names
-            collector = FieldCollector()
+            # First pass: collect Odoo field names and method names
+            collector = NameCollector()
             collector.visit(tree)
             
-            # Second pass: apply obfuscation with collected field names
-            obfuscator = Obfuscator(odoo_field_names=collector.field_names)
+            # Second pass: apply obfuscation with collected names
+            # preserve_public_api ensures public functions/classes can be imported
+            obfuscator = Obfuscator(
+                odoo_field_names=collector.field_names,
+                collected_methods=collector.method_names,
+                preserve_public_api=preserve_api
+            )
             obfuscated_tree = obfuscator.visit(tree)
             # Generate runtime code with strings and license
             strings_repr = repr(obfuscator.strings)
@@ -751,7 +949,7 @@ def obfuscate_file_single(input_file, output_file, machine_id=None, license_key=
         print(f"   Error obfuscating {input_file}: {e}")
         return False
 
-def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=365):
+def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=365, preserve_api=True):
     """Obfuscate a single Python file with optional machine binding"""
     output_path = Path(output_file)
 
@@ -797,12 +995,17 @@ def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=
         # Parse AST
         tree = ast.parse(source, filename=input_file)
 
-        # First pass: collect Odoo field names
-        collector = FieldCollector()
+        # First pass: collect Odoo field names and method names
+        collector = NameCollector()
         collector.visit(tree)
         
-        # Second pass: apply obfuscation with collected field names
-        obfuscator = Obfuscator(odoo_field_names=collector.field_names)
+        # Second pass: apply obfuscation with collected names
+        # preserve_public_api ensures public functions/classes can be imported
+        obfuscator = Obfuscator(
+            odoo_field_names=collector.field_names,
+            collected_methods=collector.method_names,
+            preserve_public_api=preserve_api
+        )
         obfuscated_tree = obfuscator.visit(tree)
         # Generate runtime code with strings and license
         strings_repr = repr(obfuscator.strings)
@@ -836,6 +1039,8 @@ def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=
     else:
         print(f"✅ Obfuscated {len(obfuscator.var_map)} variables")
         print(f"✅ Encrypted {len(obfuscator.strings)} strings")
+        if obfuscator.public_names:
+            print(f"✅ Preserved {len(obfuscator.public_names)} public API names (importable)")
         if bind_machine:
             print(f"✅ Machine binding enabled (ID: {machine_id[:16]}...)")
 
@@ -855,6 +1060,8 @@ if __name__ == "__main__":
                        help="Bind obfuscated code to current machine")
     parser.add_argument("--expiration", type=int, default=365,
                        help="License expiration in days (default: 365)")
+    parser.add_argument("--no-preserve-api", action="store_true",
+                       help="Obfuscate all names including public API (may break imports)")
 
     args = parser.parse_args()
 
@@ -899,14 +1106,23 @@ if __name__ == "__main__":
         output_path = resolved_output / input_path.name
 
     try:
+        # Determine if we should preserve public API (default: True, unless --no-preserve-api)
+        preserve_api = not args.no_preserve_api
+        
         if input_path.is_dir():
             # Directory mode
             print("🏗️  Directory obfuscation mode")
             print("="*50)
+            if preserve_api:
+                print("🔓 Public API preservation: ENABLED (Odoo/Framework compatible)")
+            else:
+                print("🔒 Public API preservation: DISABLED (Full obfuscation)")
+            print()
             success = obfuscate_directory(
                 str(input_path), str(output_path),
                 bind_machine=args.bind_machine,
-                expiration_days=args.expiration
+                expiration_days=args.expiration,
+                preserve_api=preserve_api
             )
 
             if success:
@@ -923,9 +1139,15 @@ if __name__ == "__main__":
             # Single file mode
             print("📄 Single file obfuscation mode")
             print("="*50)
+            if preserve_api:
+                print("🔓 Public API preservation: ENABLED (Odoo/Framework compatible)")
+            else:
+                print("🔒 Public API preservation: DISABLED (Full obfuscation)")
+            print()
             obfuscate_file(str(input_path), str(output_path),
                           bind_machine=args.bind_machine,
-                          expiration_days=args.expiration)
+                          expiration_days=args.expiration,
+                          preserve_api=preserve_api)
             print(f"\n✅ File obfuscation complete: {output_path}")
 
             if args.bind_machine:
