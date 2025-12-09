@@ -5,7 +5,7 @@ A comprehensive Python code obfuscation tool with hardware binding,
 designed to protect Python applications from reverse engineering.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.2"
 __author__ = "PyProtect Team"
 
 from .main import (
