@@ -1,7 +1,15 @@
-# PyProtect Windows Installation Script (PowerShell)
+# PyProtect Enhanced Windows Installation Script (PowerShell)
 
-Write-Host "Installing PyProtect for Windows..." -ForegroundColor Cyan
-Write-Host "=======================================" -ForegroundColor Cyan
+Write-Host "Installing PyProtect Enhanced for Windows..." -ForegroundColor Cyan
+Write-Host "=============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Enhanced Features:" -ForegroundColor Green
+Write-Host "  + Advanced String Encryption (Multi-layer XOR + Base64)" -ForegroundColor Gray
+Write-Host "  + Confusing Variable Name Obfuscation" -ForegroundColor Gray
+Write-Host "  + Control Flow Obfuscation with Junk Code" -ForegroundColor Gray
+Write-Host "  + Anti-Debugging Protection" -ForegroundColor Gray
+Write-Host "  + Code Integrity Verification" -ForegroundColor Gray
+Write-Host "  + Dummy Functions & Dead Code Injection" -ForegroundColor Gray
 Write-Host ""
 
 # Check Python installation
@@ -18,21 +26,35 @@ try {
 # Get the current directory
 $SCRIPT_DIR = $PSScriptRoot
 
-# Check for new package structure or old structure
+# Check for new package structure or main structure
 $NEW_STRUCTURE = Test-Path (Join-Path $SCRIPT_DIR "src\pyprotect\cli.py")
-$OLD_STRUCTURE = Test-Path (Join-Path $SCRIPT_DIR "pyprotect.py")
+$MAIN_STRUCTURE = Test-Path (Join-Path $SCRIPT_DIR "pyprotect.py")
 
-if (-not $NEW_STRUCTURE -and -not $OLD_STRUCTURE) {
+if (-not $NEW_STRUCTURE -and -not $MAIN_STRUCTURE) {
     Write-Host "ERROR: PyProtect source not found" -ForegroundColor Red
     Write-Host "Expected: src\pyprotect\cli.py or pyprotect.py" -ForegroundColor Yellow
     exit 1
 }
 
+# Check if main pyprotect.py has enhanced features
+$ENHANCED_FEATURES = $false
+if ($MAIN_STRUCTURE) {
+    $pyprotectContent = Get-Content (Join-Path $SCRIPT_DIR "pyprotect.py") -Raw
+    if ($pyprotectContent -match "Enhanced.*Obfuscator|_check_environment|confusing.*patterns") {
+        $ENHANCED_FEATURES = $true
+    }
+}
+
 if ($NEW_STRUCTURE) {
     Write-Host "Found new package structure (src/pyprotect/)" -ForegroundColor Green
     Write-Host "Package installation will create 'pyprotect' command" -ForegroundColor Gray
-} else {
-    Write-Host "Found legacy structure (pyprotect.py)" -ForegroundColor Green
+} elseif ($MAIN_STRUCTURE) {
+    if ($ENHANCED_FEATURES) {
+        Write-Host "Found PyProtect with Enhanced Features (pyprotect.py)" -ForegroundColor Green
+        Write-Host "Installing enhanced version with advanced obfuscation features" -ForegroundColor Cyan
+    } else {
+        Write-Host "Found standard PyProtect (pyprotect.py)" -ForegroundColor Green
+    }
     
     # Create wrapper batch file (for Command Prompt) - backward compatibility
     $PYPROTECT_PATH = Join-Path $SCRIPT_DIR "pyprotect.py"
@@ -146,18 +168,50 @@ if (Test-Path (Join-Path $SCRIPT_DIR "setup.py")) {
 Write-Host ""
 Write-Host "Installation complete!" -ForegroundColor Green
 Write-Host ""
-Write-Host "Usage Examples:" -ForegroundColor Cyan
-Write-Host "  pyprotect -i file.py -b" -ForegroundColor White
-Write-Host "  pyprotect -i project\ -b" -ForegroundColor White
-Write-Host "  pyprotect -m  # Check machine ID" -ForegroundColor White
-Write-Host "  pyprotect -c  # Check license status" -ForegroundColor White
-Write-Host ""
-if ($NEW_STRUCTURE) {
-    Write-Host "IMPORTANT: Restart your terminal to use the pyprotect command" -ForegroundColor Yellow
-    Write-Host "The 'pyprotect' command will be available after package installation" -ForegroundColor Gray
+
+if ($ENHANCED_FEATURES) {
+    Write-Host "Enhanced PyProtect Usage Examples:" -ForegroundColor Cyan
+    Write-Host "  pyprotect -i file.py -o obfuscated.py  # Enhanced obfuscation" -ForegroundColor White
+    Write-Host "  pyprotect -i project_folder -o dist/   # Batch processing" -ForegroundColor White
+    Write-Host "  pyprotect -d -i file.py                # Deploy mode (backup & replace)" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Enhanced Features Active:" -ForegroundColor Green
+    Write-Host "  * Multi-layer string encryption (XOR + Base64)" -ForegroundColor Gray
+    Write-Host "  * Confusing variable names (O0O, l1l, I1I patterns)" -ForegroundColor Gray
+    Write-Host "  * Control flow obfuscation with junk code" -ForegroundColor Gray
+    Write-Host "  * Anti-debugging protection" -ForegroundColor Gray
+    Write-Host "  * Code integrity verification" -ForegroundColor Gray
+    Write-Host "  * Dummy functions & dead code injection" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Direct usage: python pyprotect.py [options]" -ForegroundColor Gray
 } else {
-    Write-Host "IMPORTANT: Restart your terminal to use the pyprotect command" -ForegroundColor Yellow
-    Write-Host "Or use: python pyprotect.py [options]" -ForegroundColor Gray
+    Write-Host "Standard PyProtect Usage Examples:" -ForegroundColor Cyan
+    Write-Host "  pyprotect -i file.py -b" -ForegroundColor White
+    Write-Host "  pyprotect -i project\ -b" -ForegroundColor White
+    Write-Host "  pyprotect -m  # Check machine ID" -ForegroundColor White
+    Write-Host "  pyprotect -c  # Check license status" -ForegroundColor White
+    Write-Host ""
+    if ($NEW_STRUCTURE) {
+        Write-Host "IMPORTANT: Restart your terminal to use the pyprotect command" -ForegroundColor Yellow
+        Write-Host "The 'pyprotect' command will be available after package installation" -ForegroundColor Gray
+    } else {
+        Write-Host "IMPORTANT: Restart your terminal to use the pyprotect command" -ForegroundColor Yellow
+        Write-Host "Or use: python pyprotect.py [options]" -ForegroundColor Gray
+    }
 }
+
 Write-Host ""
-Write-Host "Run pyprotect --help for full documentation" -ForegroundColor Cyan
+Write-Host "Documentation:" -ForegroundColor Cyan
+Write-Host "  pyprotect --help                    # Command help" -ForegroundColor White
+Write-Host "  cat ENHANCED_FEATURES.md            # Enhanced features guide" -ForegroundColor White
+Write-Host "  cat README.md                       # Full documentation" -ForegroundColor White
+Write-Host ""
+
+# Show security warning for enhanced version
+if ($ENHANCED_FEATURES) {
+    Write-Host "WARNING - SECURITY NOTICE:" -ForegroundColor Yellow
+    Write-Host "Enhanced PyProtect includes anti-debugging features that may trigger" -ForegroundColor Gray
+    Write-Host "antivirus software. This is normal behavior for obfuscation tools." -ForegroundColor Gray
+    Write-Host "Add PyProtect to your antivirus whitelist if needed." -ForegroundColor Gray
+    Write-Host ""
+}
