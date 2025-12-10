@@ -269,6 +269,105 @@ def generate_license_key(machine_id, expiration_days=365):
 
     return license_key, expiration
 
+def extract_future_imports(source: str):
+    """Extract leading __future__ imports (and preceding blank/comment lines) to keep them at the top."""
+    lines = source.splitlines()
+    future_lines = []
+    body_lines = []
+    found_body = False
+    
+    for line in lines:
+        stripped = line.lstrip()
+        # Before any real code, collect future imports, comments, and blank lines
+        if not found_body:
+            if stripped.startswith('from __future__ import'):
+                future_lines.append(line)
+                continue
+            elif stripped == '' or stripped.startswith('#'):
+                future_lines.append(line)
+                continue
+            else:
+                # First non-future, non-comment, non-blank line marks start of body
+                found_body = True
+                body_lines.append(line)
+        else:
+            body_lines.append(line)
+    
+    # Trim trailing blank lines from future_lines
+    while future_lines and future_lines[-1].strip() == '':
+        future_lines.pop()
+    
+    future_prefix = '\n'.join(future_lines) if future_lines else ''
+    body = '\n'.join(body_lines)
+    return future_prefix, body
+
+
+def strip_existing_runtime_code(source: str):
+    """Remove existing obfuscation runtime code to allow re-obfuscation"""
+    lines = source.splitlines()
+    result_lines = []
+    skip_mode = False
+    
+    # Markers that indicate runtime code we should skip
+    runtime_markers = [
+        'Override ast.literal_eval IMMEDIATELY',
+        '_safe_literal_eval',
+        '_original_literal_eval',
+        '_STRINGS = []',
+        '_STRINGS = [',
+        'def _decrypt_str(',
+        '_LICENSE_KEY =',
+        'def _get_machine_id(',
+        'def _check_license(',
+        '_check_license()',
+    ]
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        
+        # Check if this line starts runtime code
+        is_runtime = any(marker in line for marker in runtime_markers)
+        
+        if is_runtime:
+            # Skip this line and look for the end of the runtime block
+            # Runtime code typically ends when we encounter a non-indented line
+            # that's not part of the runtime or when we see actual application code
+            if stripped.startswith('_check_license()'):
+                # This is the call to _check_license, skip it and continue
+                i += 1
+                continue
+            elif stripped.startswith('def _') or stripped.startswith('_LICENSE_KEY') or stripped.startswith('_STRINGS'):
+                # Start of a runtime function or variable, skip the entire definition
+                skip_mode = True
+                i += 1
+                continue
+            elif '# Override ast.literal_eval' in line or '_original_literal_eval' in line:
+                # Start of runtime setup code
+                skip_mode = True
+                i += 1
+                continue
+        
+        if skip_mode:
+            # We're skipping runtime code
+            # Stop skipping when we see a non-indented, non-empty line that looks like app code
+            if stripped and not line.startswith(' ') and not line.startswith('\t'):
+                # Check if this looks like application code
+                if not any(marker in line for marker in runtime_markers):
+                    # This is application code, stop skipping
+                    skip_mode = False
+                    result_lines.append(line)
+            # Otherwise keep skipping
+            i += 1
+            continue
+        
+        # Normal line, keep it
+        result_lines.append(line)
+        i += 1
+    
+    return '\n'.join(result_lines)
+
 def verify_license_key(license_key):
     """Verify if license is valid for current machine"""
     try:
@@ -384,6 +483,9 @@ class Obfuscator(ast.NodeTransformer):
             'default_get', 'fields_get', 'fields_view_get',
             # API decorators - these are method names typically
             'api', 'models', 'fields', 'tools', '_',
+            # Python compatibility shims (often exported from compat modules)
+            'string_types', 'text_type', 'binary_type', 'integer_types',
+            'iteritems', 'iterkeys', 'itervalues', 'PY2', 'PY3',
         }
         
         # Odoo method name patterns that must be preserved
@@ -477,10 +579,15 @@ class Obfuscator(ast.NodeTransformer):
         # These are typically defined at module level and used throughout
         if self.module_level_depth == 0:  # We're at module level, not in a function/class
             common_module_vars = ['_logger', '_log', 'logger', 'log']
+            module_state_suffixes = ['_cache', '_registry', '_map', '_dict', '_list', '_set', '_parsers', '_handlers']
+            
             for target in node.targets:
                 if isinstance(target, ast.Name):
-                    # Preserve uppercase constants and common module variables
-                    if target.id.isupper() or target.id in common_module_vars:
+                    # Check if it's a module state variable
+                    is_module_state_var = any(target.id.endswith(suffix) for suffix in module_state_suffixes)
+                    
+                    # Preserve uppercase constants, common module variables, state variables, and reserved names
+                    if target.id.isupper() or target.id in common_module_vars or is_module_state_var or target.id in self.odoo_reserved:
                         # Visit the value but preserve the target name
                         self.generic_visit(node.value)
                         return node
@@ -491,8 +598,21 @@ class Obfuscator(ast.NodeTransformer):
 
     def visit_Name(self, node):
         """Obfuscate variable names"""
-        # Skip Odoo field names
-        if node.id in self.odoo_field_names:
+        # NEVER obfuscate 'self' and 'cls' - they are Python conventions and can cause UnboundLocalError
+        # if reassigned to themselves (e.g., self = self.with_context(...))
+        if node.id in ('self', 'cls'):
+            return node
+        
+        # IMPORTANT: Check var_map FIRST before checking odoo_field_names
+        # If we're inside a function and this name is in var_map, it's a local variable/parameter,
+        # not an Odoo field, even if it has the same name as an Odoo field
+        # This prevents parameter names like 'name' or 'string' from being incorrectly preserved
+        if node.id in self.var_map:
+            # This is a local variable or parameter that should be obfuscated
+            # Process it according to context (Store or Load)
+            pass  # Continue to the Store/Load logic below
+        elif node.id in self.odoo_field_names:
+            # Skip Odoo field names (but only if not in var_map)
             return node
         
         # Skip ALL UPPERCASE constants (Python convention for module-level constants)
@@ -504,9 +624,15 @@ class Obfuscator(ast.NodeTransformer):
         # Preserve common module-level variables that are used throughout the code
         # These are typically defined at module level and referenced in multiple places
         common_module_vars = ['_logger', '_log', 'logger', 'log']
-        if node.id in common_module_vars and self.module_level_depth == 0:
-            # Only preserve at module level, not if it's a local variable
-            if node.id not in self.var_map:
+        
+        # Also preserve module-level cache/registry/map variables (common patterns)
+        # These are module-level state variables that need consistent names
+        module_state_suffixes = ['_cache', '_registry', '_map', '_dict', '_list', '_set', '_parsers', '_handlers']
+        is_module_state_var = any(node.id.endswith(suffix) for suffix in module_state_suffixes)
+        
+        if self.module_level_depth == 0 and node.id not in self.var_map:
+            # At module level, preserve logger variables and state variables
+            if node.id in common_module_vars or is_module_state_var:
                 return node
         
         # For Store context (variable assignment)
@@ -514,9 +640,11 @@ class Obfuscator(ast.NodeTransformer):
             # If we're in a class body (not in a method) and this is an Odoo model attribute, preserve it
             if self.in_class_body and node.id in self.odoo_reserved:
                 return node
-            # Preserve module-level constants and common variables at module level
+            # Preserve module-level constants, common variables, and state variables at module level
             if self.module_level_depth == 0:
-                if node.id.isupper() or node.id in common_module_vars:
+                module_state_suffixes = ['_cache', '_registry', '_map', '_dict', '_list', '_set', '_parsers', '_handlers']
+                is_module_state_var = any(node.id.endswith(suffix) for suffix in module_state_suffixes)
+                if node.id.isupper() or node.id in common_module_vars or is_module_state_var:
                     return node
             # Otherwise, allow obfuscation (local variables/parameters can have any name)
             if node.id not in self.var_map:
@@ -648,29 +776,55 @@ class Obfuscator(ast.NodeTransformer):
         # with keyword arguments from outside the class
         is_public_method = not node.name.startswith('_')
         
-        for arg in node.args.args:
-            # Skip 'self'
-            if arg.arg == 'self':
-                continue
+        # Process all parameter types
+        def process_param(arg_node):
+            """Helper to obfuscate a parameter"""
+            if arg_node is None:
+                return
             
-            # Skip parameters in controller methods (they're matched by URL routes)
+            # Skip 'self' and 'cls'
+            if arg_node.arg in ('self', 'cls'):
+                return
+            
+            # Skip parameters in controller methods
+            # IMPORTANT: Still add them to var_map with identity mapping
             if self.in_controller_class:
-                # Don't obfuscate parameters in controller methods
-                continue
+                self.var_map[arg_node.arg] = arg_node.arg  # Identity mapping
+                return
             
-            # Preserve parameter names in public methods to maintain keyword argument compatibility
-            # Public methods (not starting with _) are often called with keyword arguments
-            # and the parameter names must match
+            # Preserve parameter names in public methods
+            # IMPORTANT: Still add them to var_map with identity mapping (original name -> original name)
+            # This prevents references in the method body from being obfuscated
             if is_public_method:
-                # Don't obfuscate parameter names in public methods
-                # Also don't add them to var_map so they remain as-is in the method body
-                continue
+                self.var_map[arg_node.arg] = arg_node.arg  # Identity mapping
+                return
             
-            # Obfuscate other parameters (private methods)
-            # Add to the fresh var_map for this method scope
-            if arg.arg not in self.var_map:
-                self.var_map[arg.arg] = self.generate_var_name()
-            arg.arg = self.var_map.get(arg.arg, arg.arg)
+            # Obfuscate other parameters
+            original_param_name = arg_node.arg
+            if original_param_name not in self.var_map:
+                self.var_map[original_param_name] = self.generate_var_name()
+            arg_node.arg = self.var_map[original_param_name]
+        
+        # Process regular positional arguments
+        for arg in node.args.args:
+            process_param(arg)
+        
+        # Process *args
+        if node.args.vararg:
+            process_param(node.args.vararg)
+        
+        # Process **kwargs
+        if node.args.kwarg:
+            process_param(node.args.kwarg)
+        
+        # Process keyword-only arguments (after *)
+        for arg in node.args.kwonlyargs:
+            process_param(arg)
+        
+        # Process positional-only arguments (before /, Python 3.8+)
+        if hasattr(node.args, 'posonlyargs'):
+            for arg in node.args.posonlyargs:
+                process_param(arg)
 
         # Mark that we're entering a method (not in class body anymore)
         old_in_class_body = self.in_class_body
@@ -678,8 +832,19 @@ class Obfuscator(ast.NodeTransformer):
         
         # Increase depth before visiting function body
         self.module_level_depth += 1
-        # Recursively visit the function body
-        self.generic_visit(node)
+        
+        # Visit the function body (don't visit args again, we already processed them)
+        # Visit decorators
+        node.decorator_list = [self.visit(decorator) for decorator in node.decorator_list]
+        
+        # Visit the body statements (this is where parameter references will be found)
+        # IMPORTANT: We must assign the result back to actually transform the nodes
+        node.body = [self.visit(stmt) for stmt in node.body]
+        
+        # Visit returns annotation if present
+        if node.returns:
+            node.returns = self.visit(node.returns)
+        
         # Decrease depth after visiting
         self.module_level_depth -= 1
         
@@ -1149,7 +1314,33 @@ def obfuscate_file_single(input_file, output_file, machine_id=None, license_key=
     try:
         # Read source
         with open(input_file, 'r', encoding='utf-8') as f:
-            source = f.read()
+            raw_source = f.read()
+        
+        # Check if file is already obfuscated (contains our runtime markers)
+        is_already_obfuscated = (
+            '_decrypt_str(' in raw_source and 
+            '_STRINGS = [' in raw_source and 
+            '_check_license' in raw_source
+        )
+        
+        if is_already_obfuscated:
+            # File is already obfuscated, just copy it as-is
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(raw_source)
+            return True
+
+        # Extract leading __future__ imports to keep them at the very top
+        future_prefix, source = extract_future_imports(raw_source)
+        
+        # Strip any existing runtime code to allow re-obfuscation (for partially obfuscated files)
+        source = strip_existing_runtime_code(source)
+        
+        # Debug: Check if from __future__ import is in both future_prefix and source
+        if 'from __future__ import' in future_prefix and 'from __future__ import' in source:
+            # Remove duplicate from __future__ import from source
+            source_lines = source.splitlines()
+            source_lines = [line for line in source_lines if 'from __future__ import' not in line]
+            source = '\n'.join(source_lines)
 
         # Check if this is a manifest file (Odoo loads these with ast.literal_eval)
         input_path = Path(input_file)
@@ -1186,11 +1377,24 @@ def obfuscate_file_single(input_file, output_file, machine_id=None, license_key=
             try:
                 # Use ast.unparse if available (Python 3.9+)
                 obfuscated_source = ast.unparse(obfuscated_tree)
-                output_code = runtime_code.replace('# Obfuscated code will be inserted here', obfuscated_source)
+                
+                # Remove any from __future__ import statements from obfuscated source
+                # since we'll prepend the future_prefix separately
+                obf_lines = obfuscated_source.splitlines()
+                obf_lines = [line for line in obf_lines if 'from __future__ import' not in line]
+                obfuscated_source = '\n'.join(obf_lines)
+                
+                full_obfuscated = runtime_code.replace('# Obfuscated code will be inserted here', obfuscated_source)
             except AttributeError:
                 # Fallback for older Python versions
-                output_code = runtime_code.replace('# Obfuscated code will be inserted here',
+                full_obfuscated = runtime_code.replace('# Obfuscated code will be inserted here',
                                                  "# Obfuscated AST (requires Python 3.9+ for ast.unparse)\n" + source)
+
+            # Prepend future imports if any - MUST be at the very top, before runtime code
+            if future_prefix:
+                output_code = future_prefix + '\n' + full_obfuscated
+            else:
+                output_code = full_obfuscated
 
         # Write output
         with open(output_file, 'w', encoding='utf-8') as f:
