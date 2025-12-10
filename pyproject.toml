@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyprotect_th"
-version = "2.1.2"
-description = "Advanced Python code obfuscator with machine ID binding"
+version = "2.1.4"
+description = "Enhanced Python code obfuscator with advanced anti-debugging, multi-layer encryption, and machine ID binding"
 readme = "README.md"
 requires-python = ">=3.6"
 authors = [

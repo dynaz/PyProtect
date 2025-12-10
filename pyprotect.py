@@ -465,6 +465,10 @@ class EnhancedObfuscator(ast.NodeTransformer):
         
         # Odoo-specific reserved attributes that must not be obfuscated
         self.odoo_reserved = {
+            # Python special variables that must NEVER be obfuscated
+            '__path__', '__name__', '__file__', '__doc__', '__package__',
+            '__version__', '__author__', '__all__', '__dict__', '__class__',
+            '__module__', '__qualname__', '__annotations__', '__slots__',
             # Model definition attributes
             '_name', '_description', '_inherit', '_inherits', '_rec_name',
             '_order', '_sql_constraints', '_constraints', '_auto', '_table',
@@ -653,6 +657,9 @@ class EnhancedObfuscator(ast.NodeTransformer):
         
         # For Store context (variable assignment)
         if isinstance(node.ctx, ast.Store):
+            # NEVER obfuscate Python special variables
+            if node.id in self.odoo_reserved:
+                return node
             if self.in_class_body and node.id in self.odoo_reserved:
                 return node
             if self.module_level_depth == 0:
@@ -676,6 +683,10 @@ class EnhancedObfuscator(ast.NodeTransformer):
 
     def visit_Constant(self, node):
         """Enhanced string encryption with multiple layers"""
+        # Skip encryption if we're inside an f-string
+        if getattr(self, 'in_fstring', False):
+            return node
+            
         if isinstance(node.value, str) and len(node.value) > 3:
             # Skip code-like strings and f-string components
             code_keywords = ['import', 'def ', 'class ', 'if ', 'for ', 'while ', 'try ', 'with ', 'from ', 'lambda ', 'return ', 'yield ', 'raise ', 'break', 'continue', 'pass', 'assert ', 'global ', 'nonlocal ', 'except ', 'finally ', 'elif ', 'else:', ' and ', ' or ', ' not ', ' is ', ' in ', 'True', 'False', 'None']
@@ -723,9 +734,55 @@ class EnhancedObfuscator(ast.NodeTransformer):
         return node
 
     def visit_JoinedStr(self, node):
-        """Handle f-strings - don't encrypt them as they cause issues"""
-        # Just visit children without modifying the f-string structure
-        self.generic_visit(node)
+        """Handle f-strings - preserve them completely to avoid AST issues"""
+        # Set flag to indicate we're inside an f-string
+        old_in_fstring = getattr(self, 'in_fstring', False)
+        self.in_fstring = True
+        
+        try:
+            # Visit children but be very careful with f-strings
+            for i, value in enumerate(node.values):
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    # Don't encrypt string literals inside f-strings
+                    continue
+                elif isinstance(value, ast.FormattedValue):
+                    # Visit the expression inside the formatted value carefully
+                    if value.value:
+                        # Temporarily disable string encryption for expressions in f-strings
+                        old_strings_len = len(self.strings)
+                        visited_value = self.visit(value.value)
+                        
+                        # If new strings were added during visit, it means we tried to encrypt
+                        # something inside the f-string, which will cause issues
+                        if len(self.strings) > old_strings_len:
+                            # Revert the strings list and don't modify the value
+                            self.strings = self.strings[:old_strings_len]
+                        else:
+                            node.values[i].value = visited_value
+                    
+                    if value.format_spec:
+                        # Handle format spec similarly
+                        old_strings_len = len(self.strings)
+                        visited_spec = self.visit(value.format_spec)
+                        
+                        if len(self.strings) > old_strings_len:
+                            self.strings = self.strings[:old_strings_len]
+                        else:
+                            node.values[i].format_spec = visited_spec
+                else:
+                    # For other types, visit but don't allow string encryption
+                    old_strings_len = len(self.strings)
+                    visited_value = self.visit(value)
+                    
+                    if len(self.strings) > old_strings_len:
+                        self.strings = self.strings[:old_strings_len]
+                    else:
+                        node.values[i] = visited_value
+        
+        finally:
+            # Always restore the flag
+            self.in_fstring = old_in_fstring
+        
         return node
 
 def create_enhanced_runtime_code(strings_list, license_key=None):
@@ -1032,6 +1089,17 @@ def strip_existing_runtime_code(source: str):
 def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=365, preserve_api=True, project_url=None):
     """Enhanced obfuscate a single Python file with optional machine binding"""
     output_path = Path(output_file)
+    input_path = Path(input_file)
+
+    # Always create backup of input file for safety
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    if input_path.is_file():
+        backup_path = input_path.parent / f"{input_path.stem}.backup_{timestamp}{input_path.suffix}"
+        try:
+            shutil.copy2(str(input_path), str(backup_path))
+            print(f"📦 Created backup: {backup_path.name}")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not create backup: {e}")
 
     # Generate license if machine binding is requested
     license_key = None
@@ -1044,18 +1112,21 @@ def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=
         if project_url:
             print(f"🔗 Project URL: {project_url}")
 
-    # Check if this is a manifest file (Odoo loads these with ast.literal_eval)
-    input_path = Path(input_file)
+    # Check if this is a file that should not be obfuscated
     is_manifest = input_path.name == '__manifest__.py' or input_path.name == '__openerp__.py'
-
+    is_init = input_path.name == '__init__.py'
+    
     # Read source
     with open(input_file, 'r', encoding='utf-8') as f:
         source = f.read()
 
-    # For manifest files, skip obfuscation entirely as Odoo uses ast.literal_eval to load them
-    if is_manifest:
-        # Copy manifest files as-is without obfuscation
+    # Skip obfuscation for special files
+    if is_manifest or is_init:
+        # Copy these files as-is without obfuscation
+        # __manifest__.py: Odoo uses ast.literal_eval to load them
+        # __init__.py: Package initialization files should remain readable
         output_code = source
+        print(f"📄 Skipped obfuscation: {input_path.name} (special file)")
     else:
         # Parse AST
         tree = ast.parse(source, filename=input_file)

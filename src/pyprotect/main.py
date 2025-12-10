@@ -56,6 +56,82 @@ def create_backup(output_path):
             except Exception as e:
                 print(f"⚠️  Warning: Could not create file backup: {e}")
 
+def restore_from_backup(backup_path):
+    """Restore original from backup"""
+    import re
+    
+    backup_path = Path(backup_path)
+    
+    # Validate backup path exists
+    if not backup_path.exists():
+        print(f"❌ Backup not found: {backup_path}")
+        return False
+    
+    # Extract original path by removing .backup_TIMESTAMP
+    backup_name = backup_path.name
+    
+    # Try to match the backup pattern
+    if backup_path.is_dir():
+        match = re.match(r'^(.+)\.backup_\d{8}_\d{6}$', backup_name)
+    else:
+        match = re.match(r'^(.+)\.backup_\d{8}_\d{6}(\..+)?$', backup_name)
+    
+    if not match:
+        print(f"❌ Not a valid backup name: {backup_name}")
+        print("   Backup names should match: name.backup_YYYYMMDD_HHMMSS")
+        return False
+    
+    # Reconstruct original path
+    if backup_path.is_dir():
+        original_name = match.group(1)
+    else:
+        original_name = match.group(1) + (match.group(2) or '')
+    
+    original_path = backup_path.parent / original_name
+    
+    # Show restore plan
+    print("\n" + "="*60)
+    print("🔄 Restore Mode")
+    print("="*60)
+    print(f"📦 Backup: {backup_path}")
+    print(f"🎯 Will restore to: {original_path}")
+    
+    if original_path.exists():
+        print(f"⚠️  Current version exists and will be REMOVED")
+    else:
+        print(f"✅ Target location is empty")
+    
+    print()
+    
+    # Ask for confirmation
+    response = input("⚠️  Proceed with restore? (y/n): ").strip().lower()
+    
+    if response not in ['y', 'yes']:
+        print("\n🛑 Restore cancelled by user")
+        return False
+    
+    print("\n🔄 Restoring...")
+    
+    try:
+        # Remove current version if it exists
+        if original_path.exists():
+            if original_path.is_dir():
+                shutil.rmtree(str(original_path))
+            else:
+                original_path.unlink()
+            print(f"✅ Removed current version at: {original_path}")
+        
+        # Restore backup
+        shutil.move(str(backup_path), str(original_path))
+        print(f"✅ Backup restored to: {original_path}")
+        print(f"\n💡 Original restored successfully!")
+        
+        return True
+        
+    except Exception as e:
+        print(f"\n❌ Restore failed: {e}")
+        return False
+
 def get_machine_id():
     """Generate a unique machine identifier based on hardware"""
     components = []
@@ -1131,3 +1207,775 @@ def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=
 # CLI entry point is in cli.py
 # This module contains the core obfuscation functionality
 
+
+# Enhanced obfuscation classes and functions
+class NameCollector(ast.NodeVisitor):
+    """Collect all Odoo field names and method names before obfuscation"""
+    
+    def __init__(self):
+        self.field_names = set()
+        self.method_names = {}  # Map method names to whether they should be obfuscated
+        # IMPORTANT: Keep this list synchronized with Obfuscator.odoo_method_patterns
+        self.odoo_method_patterns = [
+            '_compute_', '_inverse_', '_search_', '_onchange_',
+            '_depends_', '_constraint_', '_sql_constraint_',
+            'action_', 'button_',
+            'get_', '_get_', 'set_', '_set_',
+            '_check_', '_prepare_',
+            '_create_', '_write_', '_update_', '_default_',
+            'show_', 'process_',
+            'execute', 'compile',
+            '_info',  # Info methods (e.g., session_info, user_info)
+        ]
+    
+    def visit_Assign(self, node):
+        """Detect Odoo field assignments"""
+        if isinstance(node.value, ast.Call):
+            if isinstance(node.value.func, ast.Attribute):
+                if isinstance(node.value.func.value, ast.Name):
+                    if node.value.func.value.id == 'fields':
+                        # This is an Odoo field assignment
+                        for target in node.targets:
+                            if isinstance(target, ast.Name):
+                                self.field_names.add(target.id)
+        self.generic_visit(node)
+    
+    def visit_FunctionDef(self, node):
+        """Collect all function/method names"""
+        # Check if this method matches Odoo patterns that should be preserved
+        should_preserve = False
+        for pattern in self.odoo_method_patterns:
+            if pattern in node.name:
+                should_preserve = True
+                break
+        
+        self.method_names[node.name] = should_preserve
+        self.generic_visit(node)
+
+class EnhancedObfuscator(ast.NodeTransformer):
+    """Enhanced AST-based obfuscator with advanced complexity"""
+
+    def __init__(self, odoo_field_names=None, collected_methods=None, preserve_public_api=True):
+        import random
+        
+        self.var_count = 0
+        self.func_count = 0
+        self.class_count = 0
+        self.var_map = {}
+        self.func_map = {}
+        self.class_map = {}
+        self.strings = []
+        self.preserve_public_api = preserve_public_api
+        self.module_level_depth = 0
+        self.public_names = set()
+        self.in_public_class = False
+        self.in_controller_class = False
+        self.in_fstring = False
+        self.in_class_body = False
+        self.collected_methods = collected_methods or {}
+        
+        # Odoo-specific reserved attributes that must not be obfuscated
+        self.odoo_reserved = {
+            # Python special variables that must NEVER be obfuscated
+            '__path__', '__name__', '__file__', '__doc__', '__package__',
+            '__version__', '__author__', '__all__', '__dict__', '__class__',
+            '__module__', '__qualname__', '__annotations__', '__slots__',
+            # Model definition attributes
+            '_name', '_description', '_inherit', '_inherits', '_rec_name',
+            '_order', '_sql_constraints', '_constraints', '_auto', '_table',
+            '_table_query', '_sequence', '_parent_name', '_parent_store',
+            '_date_name', '_fold_name', '_abstract', '_transient', '_log_access',
+            '_check_company_auto',
+            # Model lifecycle methods
+            '_register_hook', '_setup_complete', '_constraint_methods',
+            # Field-related attributes
+            '_columns', '_defaults', '_rec_name', '_order',
+            # Technical attributes
+            'env', 'id', 'ids', '_context', '_cr', '_uid',
+            # Common methods that shouldn't be obfuscated
+            'create', 'write', 'unlink', 'search', 'browse', 'read',
+            'search_read', 'name_get', 'name_search', 'name_create',
+            'default_get', 'fields_get', 'fields_view_get',
+            # API decorators - these are method names typically
+            'api', 'models', 'fields', 'tools', '_',
+            # Python compatibility shims (often exported from compat modules)
+            'string_types', 'text_type', 'binary_type', 'integer_types',
+            'iteritems', 'iterkeys', 'itervalues', 'PY2', 'PY3',
+        }
+        
+        # Odoo method name patterns that must be preserved
+        self.odoo_method_patterns = [
+            '_compute_', '_inverse_', '_search_', '_onchange_',
+            '_depends_', '_constraint_', '_sql_constraint_',
+            'action_', 'button_',
+            'get_', '_get_', 'set_', '_set_',
+            '_check_', '_prepare_',
+            '_create_', '_write_', '_update_', '_default_',
+            'show_', 'process_',
+            'execute', 'compile',
+            '_info',
+        ]
+        
+        # Odoo field names collected from first pass
+        self.odoo_field_names = odoo_field_names or set()
+        
+        # Pre-populate func_map with methods that will be obfuscated
+        for method_name, should_preserve in self.collected_methods.items():
+            if not should_preserve:
+                should_really_preserve = False
+                
+                # Check if method name matches any preservation pattern
+                for pattern in self.odoo_method_patterns:
+                    if pattern in method_name:
+                        should_really_preserve = True
+                        break
+                
+                # Check if it's in odoo_reserved
+                if method_name in self.odoo_reserved:
+                    should_really_preserve = True
+                
+                # Only add to func_map if it should truly be obfuscated
+                if not should_really_preserve:
+                    self.func_map[method_name] = self.generate_confusing_func_name()
+
+    def generate_confusing_var_name(self):
+        """Generate highly confusing variable names"""
+        import random
+        patterns = [
+            lambda n: f'O0O0O{n}O0O',  # Mix of O and 0
+            lambda n: f'l1l1l{n}l1l',  # Mix of l and 1
+            lambda n: f'__{n}__',      # Double underscore
+            lambda n: f'I1I1I{n}I1I',  # Mix of I and 1
+            lambda n: f'_x{n}_y{n}_z{n}',  # Multi-part names
+            lambda n: f'var_{hex(n)[2:]}_{hex(n*7)[2:]}',  # Hex-based
+        ]
+        pattern = random.choice(patterns)
+        name = pattern(self.var_count)
+        self.var_count += 1
+        return name
+
+    def generate_confusing_func_name(self):
+        """Generate highly confusing function names"""
+        import random
+        patterns = [
+            lambda n: f'func_O0O{n}O0O',
+            lambda n: f'method_l1l{n}l1l',
+            lambda n: f'__{hex(n)[2:]}_{hex(n*3)[2:]}__',
+            lambda n: f'fn_I1I{n}I1I',
+            lambda n: f'_exec_{n}_{n*2}',
+            lambda n: f'handler_{chr(65+n%26)}{n}',
+        ]
+        pattern = random.choice(patterns)
+        name = pattern(self.func_count)
+        self.func_count += 1
+        return name
+
+    def generate_class_name(self):
+        """Generate obfuscated class name"""
+        name = f'_cls_{self.class_count}'
+        self.class_count += 1
+        return name
+
+    def add_control_flow_obfuscation(self, node):
+        """Add control flow obfuscation to make reverse engineering harder"""
+        import random
+        # Add dummy conditional branches that never execute
+        dummy_conditions = [
+            ast.Compare(
+                left=ast.Constant(value=1),
+                ops=[ast.Eq()],
+                comparators=[ast.Constant(value=0)]
+            ),
+            ast.Compare(
+                left=ast.Constant(value=True),
+                ops=[ast.Is()],
+                comparators=[ast.Constant(value=False)]
+            ),
+            ast.Compare(
+                left=ast.Constant(value="dummy"),
+                ops=[ast.Eq()],
+                comparators=[ast.Constant(value="never_match")]
+            )
+        ]
+        
+        # Create dummy if statement that never executes
+        dummy_if = ast.If(
+            test=random.choice(dummy_conditions),
+            body=[
+                ast.Expr(value=ast.Call(
+                    func=ast.Name(id='print', ctx=ast.Load()),
+                    args=[ast.Constant(value="This will never print")],
+                    keywords=[]
+                )),
+                ast.Pass()
+            ],
+            orelse=[]
+        )
+        
+        return dummy_if
+
+    def visit_FunctionDef(self, node):
+        """Add junk code to function definitions and obfuscate names"""
+        import random
+        # Add junk code randomly
+        if len(node.body) > 0 and random.random() < 0.3:  # 30% chance
+            junk_code = self.add_control_flow_obfuscation(node)
+            node.body.insert(0, junk_code)
+        
+        # Obfuscate function name if not preserved
+        if node.name not in ['__init__', '__str__', '__repr__', 'main']:
+            should_preserve = False
+            
+            # Check if it's in odoo_reserved
+            if node.name in self.odoo_reserved:
+                should_preserve = True
+            
+            # Check if method name matches any preservation pattern
+            for pattern in self.odoo_method_patterns:
+                if pattern in node.name:
+                    should_preserve = True
+                    break
+            
+            if not should_preserve:
+                if node.name not in self.func_map:
+                    self.func_map[node.name] = self.generate_confusing_func_name()
+                node.name = self.func_map[node.name]
+        
+        # Continue with normal processing
+        self.generic_visit(node)
+        return node
+
+    def visit_Name(self, node):
+        """Obfuscate variable names with enhanced patterns"""
+        # NEVER obfuscate 'self' and 'cls'
+        if node.id in ('self', 'cls'):
+            return node
+        
+        # Check var_map FIRST before checking odoo_field_names
+        if node.id in self.var_map:
+            pass  # Continue to the Store/Load logic below
+        elif node.id in self.odoo_field_names:
+            return node
+        
+        # Skip ALL UPPERCASE constants
+        if node.id.isupper():
+            return node
+        
+        # Preserve common module-level variables
+        common_module_vars = ['_logger', '_log', 'logger', 'log']
+        module_state_suffixes = ['_cache', '_registry', '_map', '_dict', '_list', '_set', '_parsers', '_handlers']
+        is_module_state_var = any(node.id.endswith(suffix) for suffix in module_state_suffixes)
+        
+        if self.module_level_depth == 0 and node.id not in self.var_map:
+            if node.id in common_module_vars or is_module_state_var:
+                return node
+        
+        # For Store context (variable assignment)
+        if isinstance(node.ctx, ast.Store):
+            # NEVER obfuscate Python special variables
+            if node.id in self.odoo_reserved:
+                return node
+            if self.in_class_body and node.id in self.odoo_reserved:
+                return node
+            if self.module_level_depth == 0:
+                if node.id.isupper() or node.id in common_module_vars or is_module_state_var:
+                    return node
+            if node.id not in self.var_map:
+                self.var_map[node.id] = self.generate_confusing_var_name()
+            node.id = self.var_map[node.id]
+        elif isinstance(node.ctx, ast.Load):
+            if node.id in self.var_map:
+                node.id = self.var_map[node.id]
+            elif node.id in self.func_map:
+                node.id = self.func_map[node.id]
+            elif node.id in self.class_map:
+                node.id = self.class_map[node.id]
+            elif node.id.isupper() or (node.id in common_module_vars and self.module_level_depth == 0):
+                return node
+            elif node.id in self.odoo_reserved:
+                return node
+        return node
+
+    def visit_Constant(self, node):
+        """Enhanced string encryption with multiple layers"""
+        # Skip encryption if we're inside an f-string
+        if getattr(self, 'in_fstring', False):
+            return node
+            
+        if isinstance(node.value, str) and len(node.value) > 3:
+            # Skip code-like strings and f-string components
+            code_keywords = ['import', 'def ', 'class ', 'if ', 'for ', 'while ', 'try ', 'with ', 'from ', 'lambda ', 'return ', 'yield ', 'raise ', 'break', 'continue', 'pass', 'assert ', 'global ', 'nonlocal ', 'except ', 'finally ', 'elif ', 'else:', ' and ', ' or ', ' not ', ' is ', ' in ', 'True', 'False', 'None']
+            special_chars = ['\n', '\t', '\r', '(', ')', '[', ']', '{', '}', '=', '+', '-', '*', '/', '//', '%', '==', '!=', '<', '>', '<=', '>=', '+=', '-=', '*=', '/=', '//=', '%=', '&', '|', '^', '~', '<<', '>>', '->', ':', ';', ',', '.']
+            
+            special_char_count = sum((1 for char in special_chars if char in node.value))
+            has_code_keywords = any((keyword in node.value for keyword in code_keywords))
+            has_many_special_chars = special_char_count > 5
+            has_newlines = '\n' in node.value or '\r' in node.value or '\t' in node.value
+            is_very_long = len(node.value) > 200
+            
+            if has_code_keywords or has_many_special_chars or has_newlines or is_very_long:
+                return node
+            
+            # Multi-layer encryption
+            string_index = len(self.strings)
+            
+            # Layer 1: XOR with index-based key
+            xor_key = (string_index % 256) ^ 0x42
+            xor_encrypted = ''.join(chr(ord(c) ^ xor_key) for c in node.value)
+            
+            # Layer 2: Base64 encoding
+            base64_encrypted = base64.b64encode(xor_encrypted.encode()).decode()
+            
+            # Layer 3: Add obfuscation markers
+            encrypted_string = f'__ENCRYPTED__{base64_encrypted}__ENCRYPTED__'
+            self.strings.append(encrypted_string)
+            
+            # Create more complex call with dummy operations
+            dummy_calc = ast.BinOp(
+                left=ast.Constant(value=string_index),
+                op=ast.Add(),
+                right=ast.BinOp(
+                    left=ast.Constant(value=0),
+                    op=ast.Mult(),
+                    right=ast.Constant(value=1)
+                )
+            )
+            
+            return ast.Call(
+                func=ast.Name(id='_decrypt_str', ctx=ast.Load()), 
+                args=[dummy_calc], 
+                keywords=[]
+            )
+        return node
+
+    def visit_JoinedStr(self, node):
+        """Handle f-strings - preserve them completely to avoid AST issues"""
+        # Set flag to indicate we're inside an f-string
+        old_in_fstring = getattr(self, 'in_fstring', False)
+        self.in_fstring = True
+        
+        try:
+            # Visit children but be very careful with f-strings
+            for i, value in enumerate(node.values):
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    # Don't encrypt string literals inside f-strings
+                    continue
+                elif isinstance(value, ast.FormattedValue):
+                    # Visit the expression inside the formatted value carefully
+                    if value.value:
+                        # Temporarily disable string encryption for expressions in f-strings
+                        old_strings_len = len(self.strings)
+                        visited_value = self.visit(value.value)
+                        
+                        # If new strings were added during visit, it means we tried to encrypt
+                        # something inside the f-string, which will cause issues
+                        if len(self.strings) > old_strings_len:
+                            # Revert the strings list and don't modify the value
+                            self.strings = self.strings[:old_strings_len]
+                        else:
+                            node.values[i].value = visited_value
+                    
+                    if value.format_spec:
+                        # Handle format spec similarly
+                        old_strings_len = len(self.strings)
+                        visited_spec = self.visit(value.format_spec)
+                        
+                        if len(self.strings) > old_strings_len:
+                            self.strings = self.strings[:old_strings_len]
+                        else:
+                            node.values[i].format_spec = visited_spec
+                else:
+                    # For other types, visit but don't allow string encryption
+                    old_strings_len = len(self.strings)
+                    visited_value = self.visit(value)
+                    
+                    if len(self.strings) > old_strings_len:
+                        self.strings = self.strings[:old_strings_len]
+                    else:
+                        node.values[i] = visited_value
+        
+        finally:
+            # Always restore the flag
+            self.in_fstring = old_in_fstring
+        
+        return node
+
+def create_enhanced_runtime_code(strings_list, license_key=None):
+    """Create enhanced runtime code with anti-tampering features"""
+    strings_repr = repr(strings_list)
+    
+    license_code = ""
+    if license_key:
+        license_code = f'''
+# License verification
+_LICENSE_KEY = "{license_key}"
+
+def _get_machine_id():
+    """Generate machine identifier"""
+    import hashlib
+    import platform
+    import uuid
+    import subprocess
+
+    components = []
+    try:
+        cpu_info = platform.processor()
+        if cpu_info:
+            components.append(f"cpu:{{cpu_info}}")
+    except:
+        pass
+
+    try:
+        machine = platform.machine()
+        if machine:
+            components.append(f"arch:{{machine}}")
+    except:
+        pass
+
+    try:
+        mac = ':'.join(['{{:02x}}'.format((uuid.getnode() >> elements) & 0xff)
+                       for elements in range(0, 2*6, 2)][::-1])
+        components.append(f"mac:{{mac}}")
+    except:
+        pass
+
+    try:
+        result = subprocess.run(['lsblk', '-o', 'SERIAL', '-n', '-d'],
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            disk_serial = result.stdout.strip().split('\\n')[0]
+            if disk_serial:
+                components.append(f"disk:{{disk_serial}}")
+    except:
+        pass
+
+    combined = '|'.join(components)
+    machine_id = hashlib.sha256(combined.encode()).hexdigest()[:32]
+    return machine_id
+
+def _verify_license_key(license_key):
+    """Verify license validity"""
+    import hashlib
+    import time
+
+    try:
+        parts = license_key.split(':')
+        if len(parts) != 3:
+            return False
+
+        machine_id = parts[0]
+        expiration = int(parts[1])
+        signature = parts[2]
+
+        current_time = int(time.time())
+        if current_time > expiration:
+            return False
+
+        expected_signature = hashlib.sha256(f"secret_salt:{{machine_id}}:{{expiration}}".encode()).hexdigest()[:16]
+        if signature != expected_signature:
+            return False
+
+        current_machine_id = _get_machine_id()
+        if machine_id != current_machine_id:
+            return False
+
+        return True
+    except:
+        return False
+
+def _check_license():
+    """Verify license on startup"""
+    if not _verify_license_key(_LICENSE_KEY):
+        print("ERROR: Invalid or expired license!")
+        print("This software is licensed to run on a different machine.")
+        import sys
+        sys.exit(1)
+
+# Check license immediately
+_check_license()
+'''
+
+    runtime_code = f'''
+import ast
+
+# Override ast.literal_eval IMMEDIATELY to handle encrypted strings gracefully
+_original_literal_eval = ast.literal_eval
+
+def _safe_literal_eval(node_or_string):
+    """Safe version of ast.literal_eval that handles encrypted strings"""
+    try:
+        return _original_literal_eval(node_or_string)
+    except (ValueError, SyntaxError) as e:
+        # If literal_eval fails, check if it's due to encrypted strings
+        if isinstance(node_or_string, str):
+            # Try to detect if this might be a decrypted string that contains code
+            if any(keyword in node_or_string for keyword in ['import ', 'def ', 'class ', 'if ', 'for ']):
+                # This looks like Python code, not a literal. Return a safe default.
+                return None
+        # Re-raise the original exception for other cases
+        raise e
+
+# Replace the original function immediately
+ast.literal_eval = _safe_literal_eval
+
+import base64
+import hashlib
+import random
+import time
+import sys
+
+_STRINGS = {strings_repr}
+
+def _decrypt_str(index):
+    """Enhanced string decryption with anti-tampering"""
+    # Junk code to confuse reverse engineers
+    _junk_var1 = sum([i*i for i in range(100)]) % 7
+    _junk_var2 = hashlib.md5(b"dummy").hexdigest()[:8]
+    
+    if _junk_var1 == 999:  # Never true - dead code
+        print("This will never execute")
+        return "fake_string"
+    
+    # Convert index to int if it's a string
+    index_int = int(index) if isinstance(index, str) else index
+    encrypted = _STRINGS[index_int]
+    
+    # More junk operations
+    _temp_calc = (index_int * 13 + 7) % 256
+    if _temp_calc > 1000:  # Never true
+        encrypted = encrypted[::-1]
+    
+    # Handle the new encrypted format
+    if encrypted.startswith('__ENCRYPTED__') and encrypted.endswith('__ENCRYPTED__'):
+        encrypted = encrypted[13:-13]  # Remove the markers
+    
+    # Enhanced XOR layer for extra security
+    try:
+        decoded = base64.b64decode(encrypted).decode()
+        # XOR decryption with key derived from index
+        xor_key = (index_int % 256) ^ 0x42
+        result = ''.join(chr(ord(c) ^ xor_key) for c in decoded)
+        
+        # More junk code
+        if len(result) < 0:  # Never true
+            result = result + _junk_var2
+            
+        return result
+    except Exception:
+        # If decryption fails, return empty string to prevent crashes
+        return ""
+
+{license_code}
+'''
+    
+    return runtime_code
+
+def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=365, preserve_api=True, project_url=None):
+    """Enhanced obfuscate a single Python file with optional machine binding"""
+    output_path = Path(output_file)
+    input_path = Path(input_file)
+
+    # Always create backup of input file for safety
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    if input_path.is_file():
+        backup_path = input_path.parent / f"{input_path.stem}.backup_{timestamp}{input_path.suffix}"
+        try:
+            import shutil
+            shutil.copy2(str(input_path), str(backup_path))
+            print(f"📦 Created backup: {backup_path.name}")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not create backup: {e}")
+
+    # Generate license if machine binding is requested
+    license_key = None
+    machine_id = None
+    if bind_machine:
+        machine_id = get_machine_id()
+        license_key, expiration = generate_license_key(machine_id, expiration_days)
+        
+        print(f"🔒 Generating machine binding license...")
+        if project_url:
+            print(f"🔗 Project URL: {project_url}")
+
+    # Check if this is a file that should not be obfuscated
+    is_manifest = input_path.name == '__manifest__.py' or input_path.name == '__openerp__.py'
+    is_init = input_path.name == '__init__.py'
+    
+    # Read source
+    with open(input_file, 'r', encoding='utf-8') as f:
+        source = f.read()
+
+    # Skip obfuscation for special files
+    if is_manifest or is_init:
+        # Copy these files as-is without obfuscation
+        # __manifest__.py: Odoo uses ast.literal_eval to load them
+        # __init__.py: Package initialization files should remain readable
+        output_code = source
+        print(f"📄 Skipped obfuscation: {input_path.name} (special file)")
+        
+        # Still create output directory if needed
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write output without obfuscation
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(output_code)
+        
+        return True
+    else:
+        # Parse AST
+        tree = ast.parse(source, filename=input_file)
+
+        # First pass: collect Odoo field names and method names
+        collector = NameCollector()
+        collector.visit(tree)
+
+        # Apply enhanced obfuscation
+        obfuscator = EnhancedObfuscator(
+            odoo_field_names=collector.field_names,
+            collected_methods=collector.method_names,
+            preserve_public_api=preserve_api
+        )
+        obfuscated_tree = obfuscator.visit(tree)
+        ast.fix_missing_locations(obfuscated_tree)
+
+        # Generate obfuscated code
+        obfuscated_code = ast.unparse(obfuscated_tree)
+
+        # Create enhanced runtime code
+        runtime_code = create_enhanced_runtime_code(obfuscator.strings, license_key)
+
+        # Combine runtime and obfuscated code
+        output_code = runtime_code + "\n" + obfuscated_code
+
+        print(f"✅ Enhanced obfuscation complete!")
+        print(f"   Variables obfuscated: {obfuscator.var_count}")
+        print(f"   Functions obfuscated: {obfuscator.func_count}")
+        print(f"   Strings encrypted: {len(obfuscator.strings)}")
+
+    # Create output directory if it doesn't exist
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save license info if machine binding is enabled
+    if bind_machine and license_key:
+        license_file = output_file + '.license'
+        with open(license_file, 'w', encoding='utf-8') as f:
+            f.write(f"Machine ID: {machine_id}\n")
+            f.write(f"License Key: {license_key}\n")
+            f.write(f"Expires: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expiration))}\n")
+            f.write(f"Protected: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            if project_url:
+                f.write(f"Project URL: {project_url}\n")
+
+    # Write output
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(output_code)
+
+    return True
+
+def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_days=365, preserve_api=True, project_url=None):
+    """Enhanced obfuscate a directory of Python files"""
+    input_path = Path(input_dir)
+    output_path = Path(output_dir)
+    
+    # Always create backup of input directory for safety
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    backup_path = input_path.parent / f"{input_path.name}.backup_{timestamp}"
+    try:
+        import shutil
+        shutil.copytree(str(input_path), str(backup_path))
+        print(f"📦 Created directory backup: {backup_path.name}")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not create directory backup: {e}")
+    
+    # Create backup of output directory if it exists
+    create_backup(output_path)
+    
+    # Process all Python files
+    python_files = []
+    other_files = []
+    
+    for file_path in input_path.rglob('*'):
+        if file_path.is_file():
+            if file_path.suffix == '.py' and '__pycache__' not in str(file_path):
+                python_files.append(file_path)
+            else:
+                other_files.append(file_path)
+    
+    print(f"   📝 Python files: {len(python_files)}")
+    print(f"   📄 Other files: {len(other_files)}")
+    print()
+    
+    # Generate license once for the entire project
+    license_key = None
+    machine_id = None
+    if bind_machine:
+        machine_id = get_machine_id()
+        license_key, expiration = generate_license_key(machine_id, expiration_days)
+    
+    # Process Python files
+    success_count = 0
+    for py_file in python_files:
+        relative_path = py_file.relative_to(input_path)
+        output_file = output_path / relative_path
+        
+        # Create output directory
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        print(f"Obfuscating {relative_path}...", end=" ")
+        
+        try:
+            success = obfuscate_file(
+                str(py_file),
+                str(output_file),
+                bind_machine=False,  # Don't bind individual files
+                preserve_api=preserve_api
+            )
+            
+            if success:
+                print("✅")
+                success_count += 1
+            else:
+                print("❌")
+        except Exception as e:
+            error_msg = str(e)
+            if "JoinedStr" in error_msg:
+                # F-string error - skip this file and copy as-is
+                print("❌ F-string issue - copying as-is")
+                try:
+                    import shutil
+                    shutil.copy2(str(py_file), str(output_file))
+                    success_count += 1
+                except Exception as copy_error:
+                    print(f"❌ Copy failed: {copy_error}")
+            else:
+                print(f"❌ Error: {e}")
+    
+    # Copy other files
+    for other_file in other_files:
+        relative_path = other_file.relative_to(input_path)
+        output_file = output_path / relative_path
+        
+        # Create output directory
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            shutil.copy2(str(other_file), str(output_file))
+        except Exception as e:
+            print(f"⚠️  Warning: Could not copy {relative_path}: {e}")
+    
+    # Save project license if machine binding is enabled
+    if bind_machine and license_key:
+        license_file = output_path / "project.license"
+        with open(license_file, 'w', encoding='utf-8') as f:
+            f.write(f"Machine ID: {machine_id}\n")
+            f.write(f"License Key: {license_key}\n")
+            f.write(f"Expires: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expiration))}\n")
+            f.write(f"Protected: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            if project_url:
+                f.write(f"Project URL: {project_url}\n")
+    
+    print(f"\n✅ Directory obfuscation complete!")
+    print(f"   Successfully processed: {success_count}/{len(python_files)} Python files")
+    print(f"   Output directory: {output_path}")
+    
+    return success_count == len(python_files)

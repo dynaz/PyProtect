@@ -5,6 +5,63 @@ All notable changes to PyProtect will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.4] - 2025-12-10
+
+### 🚀 Enhanced Security Features
+
+Major upgrade with advanced anti-reverse engineering capabilities.
+
+### ✨ Added
+- **🔐 Multi-layer String Encryption**
+  - XOR encryption with index-based keys
+  - Base64 encoding layer
+  - Enhanced anti-tampering protection
+  
+- **🎭 Advanced Variable Name Obfuscation**
+  - Confusing patterns: `O0O0O1O0O`, `l1l1l2l1l`, `I1I1I3I1I`
+  - Hex-based names and multi-part variables
+  - Mix of similar characters (O/0, l/1, I/1)
+  
+- **🌀 Control Flow Obfuscation**
+  - Junk code injection (30% chance per function)
+  - Dead code branches that never execute
+  - Dummy calculations and conditions
+  
+- **🛡️ Anti-Debugging Protection**
+  - Windows debugger detection (`IsDebuggerPresent`)
+  - Suspicious process monitoring (IDA, OllyDbg, x64dbg, etc.)
+  - Environment variable checks
+  - Random delays to confuse analysis
+  
+- **✅ Code Integrity Verification**
+  - File hash checking
+  - Pattern verification
+  - Tampering detection with silent exit
+  
+- **🎪 Dummy Functions & Dead Code**
+  - Fake calculation functions
+  - Misleading function names
+  - Complex but useless operations
+  
+- **📦 Deploy Mode (`-d` flag)**
+  - Backup original and replace in-place
+  - Safe deployment with confirmation prompts
+  
+- **🔄 Restore Mode (`-r` flag)**
+  - Restore from timestamped backups
+  - Pattern-based backup validation
+
+### 🔧 Improved
+- Enhanced CLI with better user feedback
+- Improved error handling and validation
+- Better package structure compatibility
+- Enhanced Odoo framework compatibility
+
+### 🐛 Fixed
+- Unicode encoding issues in file operations
+- Package installation CLI argument parsing
+- Function name obfuscation edge cases
+
 ## [1.0.0] - 2025-12-08
 
 ### 🎉 Initial Release

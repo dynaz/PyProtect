@@ -27,7 +27,7 @@ import random
 import time
 import sys
 
-_STRINGS = ['__ENCRYPTED__ESsvMi4nYiQ3LCE2Ky0sYjYtYjYnMTZiLSAkNzEhIzYrLSw=__ENCRYPTED__', '__ENCRYPTED__CyYvLyxvYwYtKyItICYnYxM6EzEsNyYgN2I=__ENCRYPTED__', '__ENCRYPTED__AyEsIzUsITQlYDM1LWAvJmA0Ny9gLjUtIiUyMw==__ENCRYPTED__', '__ENCRYPTED__EjQsYS4nYQ==__ENCRYPTED__', '__ENCRYPTED__EiM1MmYqKSk2ZikkIDM1JScyLyko__ENCRYPTED__', '__ENCRYPTED__Ey8uNGc0MzUuKSBnMC4rK2clImciKSQ1PjczIiM=__ENCRYPTED__', '__ENCRYPTED__ECE3MC0qI2Q3MDYtKiNkISonNj00MC0rKn5k__ENCRYPTED__', '__ENCRYPTED__CSoqNWUsMSA3JDEsKit/ZQ==__ENCRYPTED__', '__ENCRYPTED__BysjJGosPyQpPiMlJA==__ENCRYPTED__', '__ENCRYPTED__CiUkPyMuOWs/Ljg/azg/OSIlLA==__ENCRYPTED__', '__ENCRYPTED__ES08aCkmJzwgLTpoOzw6ISYv__ENCRYPTED__', '__ENCRYPTED__Hyg7ICgrJSw6c2k=__ENCRYPTED__', '__ENCRYPTED__EREjLycgERE=__ENCRYPTED__']
+_STRINGS = ['__ENCRYPTED__FiorMWI1Ky4uYiwnNCcwYjIwKyw2__ENCRYPTED__', '__ENCRYPTED__ECouMy8mYyU2LSA3KiwtYzcsYzcmMDdjJyYzLyw6Yy4sJyY=__ENCRYPTED__', '__ENCRYPTED__AyEsIzUsITQlYDM1LWAvJmA0Ny9gLjUtIiUyMw==__ENCRYPTED__', '__ENCRYPTED__EjQsYS4nYQ==__ENCRYPTED__', '__ENCRYPTED__CycvKGYgMyglMi8pKA==__ENCRYPTED__', '__ENCRYPTED__ESY1LiYlKyI0fWc=__ENCRYPTED__', '__ENCRYPTED__GxspJS0qGxs=__ENCRYPTED__']
 
 def _decrypt_str(index):
     """Enhanced string decryption with anti-tampering"""
@@ -71,35 +71,30 @@ def _decrypt_str(index):
 
 
 """
-Test file for PyProtect Enhanced features
+Test file for deploy mode testing
 """
 
-def method_l1l0l1l():
-    _decrypt_str(0 + 0 * 1)
-    I1I1I0I1I = _decrypt_str(1 + 0 * 1)
+def handler_A0():
+    if True is False:
+        print(_decrypt_str(0 + 0 * 1))
+        pass
+    _decrypt_str(1 + 0 * 1)
+    I1I1I0I1I = 'Hello from deploy mode test!'
     print(I1I1I0I1I)
     return I1I1I0I1I
 
-def func_O0O1O0O(a, b):
+def handler_B1(a, b):
     _decrypt_str(2 + 0 * 1)
-    __1__ = a + b
-    print(_decrypt_str(3 + 0 * 1) + str(a) + ' and ' + str(b) + ' is ' + str(__1__))
-    return __1__
-
-def method_l1l2l1l():
-    _decrypt_str(4 + 0 * 1)
-    var_2_e = _decrypt_str(5 + 0 * 1)
-    print(_decrypt_str(6 + 0 * 1) + var_2_e)
-    for var_3_15 in range(3):
-        print(_decrypt_str(7 + 0 * 1) + str(var_3_15))
+    O0O0O1O0O = a + b
+    print(_decrypt_str(3 + 0 * 1) + str(a) + ' and ' + str(b) + ' is ' + str(O0O0O1O0O))
+    return O0O0O1O0O
 
 def main():
-    _decrypt_str(8 + 0 * 1)
-    method_l1l0l1l()
-    __1__ = func_O0O1O0O(15, 25)
-    method_l1l2l1l()
-    _x4_y4_z4 = _decrypt_str(9 + 0 * 1)
-    O0O0O5O0O = _decrypt_str(10 + 0 * 1)
-    print(_decrypt_str(11 + 0 * 1) + _x4_y4_z4 + ' and ' + O0O0O5O0O)
-if __name__ == _decrypt_str(12 + 0 * 1):
-    __3_9__()
+    _decrypt_str(4 + 0 * 1)
+    handler_A0()
+    O0O0O1O0O = handler_B1(10, 20)
+    O0O0O2O0O = 'This is a test variable'
+    var_3_15 = 'Another variable for testing'
+    print(_decrypt_str(5 + 0 * 1) + O0O0O2O0O + ' and ' + var_3_15)
+if __name__ == _decrypt_str(6 + 0 * 1):
+    fn_I1I2I1I()
