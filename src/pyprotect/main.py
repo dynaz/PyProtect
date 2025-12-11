@@ -1280,6 +1280,11 @@ class EnhancedObfuscator(ast.NodeTransformer):
             '__path__', '__name__', '__file__', '__doc__', '__package__',
             '__version__', '__author__', '__all__', '__dict__', '__class__',
             '__module__', '__qualname__', '__annotations__', '__slots__',
+            # Python built-in and common variables
+            'dispatch', 'registry', 'globals', 'locals', 'vars', 'dir',
+            'dump_frozen_dict', 'dump_struct', 'dump_array', 'dump_instance',
+            'dump_string', 'dump_unicode', 'dump_int', 'dump_long', 'dump_double',
+            'dump_datetime', 'dump_binary', 'dump_nil', 'dump_bool',
             # Model definition attributes
             '_name', '_description', '_inherit', '_inherits', '_rec_name',
             '_order', '_sql_constraints', '_constraints', '_auto', '_table',
@@ -1314,6 +1319,9 @@ class EnhancedObfuscator(ast.NodeTransformer):
             'show_', 'process_',
             'execute', 'compile',
             '_info',
+            '_autovacuum',  # Methods with @api.autovacuum decorator
+            '_cron_',       # Cron methods
+            '_cleanup_',    # Cleanup methods
         ]
         
         # Odoo field names collected from first pass
@@ -1435,6 +1443,11 @@ class EnhancedObfuscator(ast.NodeTransformer):
                 if pattern in node.name:
                     should_preserve = True
                     break
+            
+            # Preserve all methods that start with underscore (private methods)
+            # This is important for Odoo decorators like @api.autovacuum
+            if node.name.startswith('_') and not node.name.startswith('__'):
+                should_preserve = True
             
             if not should_preserve:
                 if node.name not in self.func_map:
@@ -1770,21 +1783,22 @@ def _decrypt_str(index):
     
     return runtime_code
 
-def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=365, preserve_api=True, project_url=None):
+def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=365, preserve_api=True, project_url=None, create_backup=True):
     """Enhanced obfuscate a single Python file with optional machine binding"""
     output_path = Path(output_file)
     input_path = Path(input_file)
 
-    # Always create backup of input file for safety
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    if input_path.is_file():
-        backup_path = input_path.parent / f"{input_path.stem}.backup_{timestamp}{input_path.suffix}"
-        try:
-            import shutil
-            shutil.copy2(str(input_path), str(backup_path))
-            print(f"📦 Created backup: {backup_path.name}")
-        except Exception as e:
-            print(f"⚠️  Warning: Could not create backup: {e}")
+    # Create backup only if requested (for single file operations)
+    if create_backup:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        if input_path.is_file():
+            backup_path = input_path.parent / f"{input_path.stem}.backup_{timestamp}{input_path.suffix}"
+            try:
+                import shutil
+                shutil.copy2(str(input_path), str(backup_path))
+                print(f"📦 Created backup: {backup_path.name}")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not create backup: {e}")
 
     # Generate license if machine binding is requested
     license_key = None
@@ -1979,3 +1993,216 @@ def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_da
     print(f"   Output directory: {output_path}")
     
     return success_count == len(python_files)
+
+def obfuscate_directory(input_dir, output_dir, bind_machine=False, expiration_days=365, preserve_api=True, project_url=None):
+    """Enhanced obfuscate a directory of Python files with backup"""
+    input_path = Path(input_dir)
+    output_path = Path(output_dir)
+    
+    # Always create backup of input directory for safety
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    backup_path = input_path.parent / f"{input_path.name}.backup_{timestamp}"
+    try:
+        import shutil
+        shutil.copytree(str(input_path), str(backup_path))
+        print(f"📦 Created directory backup: {backup_path.name}")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not create directory backup: {e}")
+    
+    # Create backup of output directory if it exists
+    create_backup(output_path)
+    
+    # Process all Python files
+    python_files = []
+    other_files = []
+    
+    for file_path in input_path.rglob('*'):
+        if file_path.is_file():
+            if file_path.suffix == '.py' and '__pycache__' not in str(file_path):
+                python_files.append(file_path)
+            else:
+                other_files.append(file_path)
+    
+    print(f"   📝 Python files: {len(python_files)}")
+    print(f"   📄 Other files: {len(other_files)}")
+    print()
+    
+    # Generate license once for the entire project
+    license_key = None
+    machine_id = None
+    if bind_machine:
+        machine_id = get_machine_id()
+        license_key, expiration = generate_license_key(machine_id, expiration_days)
+    
+    # Process Python files
+    success_count = 0
+    for py_file in python_files:
+        relative_path = py_file.relative_to(input_path)
+        output_file = output_path / relative_path
+        
+        # Create output directory
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        print(f"Obfuscating {relative_path}...", end=" ")
+        
+        try:
+            success = obfuscate_file(
+                str(py_file),
+                str(output_file),
+                bind_machine=False,  # Don't bind individual files
+                preserve_api=preserve_api
+            )
+            
+            if success:
+                print("✅")
+                success_count += 1
+            else:
+                print("❌")
+        except Exception as e:
+            error_msg = str(e)
+            if "JoinedStr" in error_msg:
+                # F-string error - skip this file and copy as-is
+                print("❌ F-string issue - copying as-is")
+                try:
+                    import shutil
+                    shutil.copy2(str(py_file), str(output_file))
+                    success_count += 1
+                except Exception as copy_error:
+                    print(f"❌ Copy failed: {copy_error}")
+            else:
+                print(f"❌ Error: {e}")
+    
+    # Copy other files
+    for other_file in other_files:
+        relative_path = other_file.relative_to(input_path)
+        output_file = output_path / relative_path
+        
+        # Create output directory
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            import shutil
+            shutil.copy2(str(other_file), str(output_file))
+        except Exception as e:
+            print(f"⚠️  Warning: Could not copy {relative_path}: {e}")
+    
+    # Save project license if machine binding is enabled
+    if bind_machine and license_key:
+        license_file = output_path / "project.license"
+        with open(license_file, 'w', encoding='utf-8') as f:
+            f.write(f"Machine ID: {machine_id}\n")
+            f.write(f"License Key: {license_key}\n")
+            f.write(f"Expires: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expiration))}\n")
+            f.write(f"Protected: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            if project_url:
+                f.write(f"Project URL: {project_url}\n")
+    
+    print(f"\n✅ Directory obfuscation complete!")
+    print(f"   Successfully processed: {success_count}/{len(python_files)} Python files")
+    print(f"   Output directory: {output_path}")
+    print(f"   📦 Backup created: {backup_path}")
+    
+    return success_count == len(python_files)
+
+def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=365, preserve_api=True, project_url=None, create_backup=True):
+    """Enhanced obfuscate a single Python file with optional machine binding"""
+    output_path = Path(output_file)
+    input_path = Path(input_file)
+
+    # Create backup of input file for safety (only if requested)
+    if create_backup:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        if input_path.is_file():
+            backup_path = input_path.parent / f"{input_path.stem}.backup_{timestamp}{input_path.suffix}"
+            try:
+                import shutil
+                shutil.copy2(str(input_path), str(backup_path))
+                print(f"📦 Created backup: {backup_path.name}")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not create backup: {e}")
+
+    # Generate license if machine binding is requested
+    license_key = None
+    machine_id = None
+    if bind_machine:
+        machine_id = get_machine_id()
+        license_key, expiration = generate_license_key(machine_id, expiration_days)
+        
+        print(f"🔒 Generating machine binding license...")
+        if project_url:
+            print(f"🔗 Project URL: {project_url}")
+
+    # Check if this is a file that should not be obfuscated
+    is_manifest = input_path.name == '__manifest__.py' or input_path.name == '__openerp__.py'
+    is_init = input_path.name == '__init__.py'
+    
+    # Read source
+    with open(input_file, 'r', encoding='utf-8') as f:
+        source = f.read()
+
+    # Skip obfuscation for special files
+    if is_manifest or is_init:
+        # Copy these files as-is without obfuscation
+        # __manifest__.py: Odoo uses ast.literal_eval to load them
+        # __init__.py: Package initialization files should remain readable
+        output_code = source
+        print(f"📄 Skipped obfuscation: {input_path.name} (special file)")
+        
+        # Still create output directory if needed
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write output without obfuscation
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(output_code)
+        
+        return True
+    else:
+        # Parse AST
+        tree = ast.parse(source, filename=input_file)
+
+        # First pass: collect Odoo field names and method names
+        collector = NameCollector()
+        collector.visit(tree)
+
+        # Apply enhanced obfuscation
+        obfuscator = EnhancedObfuscator(
+            odoo_field_names=collector.field_names,
+            collected_methods=collector.method_names,
+            preserve_public_api=preserve_api
+        )
+        obfuscated_tree = obfuscator.visit(tree)
+        ast.fix_missing_locations(obfuscated_tree)
+
+        # Generate obfuscated code
+        obfuscated_code = ast.unparse(obfuscated_tree)
+
+        # Create enhanced runtime code
+        runtime_code = create_enhanced_runtime_code(obfuscator.strings, license_key)
+
+        # Combine runtime and obfuscated code
+        output_code = runtime_code + "\n" + obfuscated_code
+
+        print(f"✅ Enhanced obfuscation complete!")
+        print(f"   Variables obfuscated: {obfuscator.var_count}")
+        print(f"   Functions obfuscated: {obfuscator.func_count}")
+        print(f"   Strings encrypted: {len(obfuscator.strings)}")
+
+    # Create output directory if it doesn't exist
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Save license info if machine binding is enabled
+    if bind_machine and license_key:
+        license_file = output_file + '.license'
+        with open(license_file, 'w', encoding='utf-8') as f:
+            f.write(f"Machine ID: {machine_id}\n")
+            f.write(f"License Key: {license_key}\n")
+            f.write(f"Expires: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expiration))}\n")
+            f.write(f"Protected: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            if project_url:
+                f.write(f"Project URL: {project_url}\n")
+
+    # Write output
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(output_code)
+
+    return True
