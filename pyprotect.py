@@ -660,6 +660,9 @@ class EnhancedObfuscator(ast.NodeTransformer):
         self.odoo_field_names = odoo_field_names or set()
         
         # Pre-populate func_map with methods that will be obfuscated
+        # NOTE: Methods added here might later be determined to be preserved
+        # (e.g., class methods, Odoo reserved methods). In such cases, visit_FunctionDef
+        # will update func_map to map the method name to itself to prevent obfuscation.
         for method_name, should_preserve in self.collected_methods.items():
             if not should_preserve:
                 should_really_preserve = False
@@ -924,11 +927,17 @@ class EnhancedObfuscator(ast.NodeTransformer):
             
             node.name = self.func_map[node.name]
         else:
-            # Function is preserved - make sure var_map knows about it
+            # Function is preserved - make sure both var_map and func_map know about it
             # This prevents the name from being obfuscated when used as a variable reference
             # For example: dispatch[bytes] = dump_bytes (where dump_bytes is a method name)
             if node.name not in self.var_map:
                 self.var_map[node.name] = node.name
+            # CRITICAL FIX: If the method was pre-populated in func_map but we're now preserving it,
+            # we need to update func_map to map the method name to itself.
+            # This ensures that method calls via attributes (self.method_name()) use the correct name.
+            if node.name in self.func_map and self.func_map[node.name] != node.name:
+                # Method was pre-populated with obfuscated name but should be preserved
+                self.func_map[node.name] = node.name
         
         # Increment depth when entering function body
         self.module_level_depth += 1
@@ -1260,6 +1269,62 @@ class EnhancedObfuscator(ast.NodeTransformer):
         finally:
             # Always restore the flag
             self.in_fstring = old_in_fstring
+        
+        return node
+    
+    def visit_keyword(self, node):
+        """
+        Handle keyword arguments in function calls.
+        When a function parameter is obfuscated, update the keyword argument name.
+        
+        Example:
+        - Function def: def foo(O0O0O0O0O):  # originally 'param'
+        - Call: foo(param=value)  # needs to become foo(O0O0O0O0O=value)
+        """
+        # Check if the keyword argument name has been obfuscated
+        if node.arg and node.arg in self.var_map:
+            # Use the obfuscated name from var_map
+            node.arg = self.var_map[node.arg]
+        
+        # Visit the value of the keyword argument
+        self.generic_visit(node)
+        return node
+    
+    def visit_ImportFrom(self, node):
+        """
+        Handle import statements to create aliases when imported names are obfuscated.
+        
+        Example:
+        - Original: from reportlab.pdfgen import canvas
+        - If 'canvas' is obfuscated to '_x13_y13_z13' in the code
+        - We need: from reportlab.pdfgen import canvas as _x13_y13_z13
+        """
+        if node.names:
+            for alias in node.names:
+                # Check if this imported name is used with an obfuscated name in the code
+                import_name = alias.name
+                
+                # Check if the imported name appears in var_map (meaning it's obfuscated)
+                if import_name in self.var_map and self.var_map[import_name] != import_name:
+                    # Add an alias to use the obfuscated name
+                    if not alias.asname:  # Only add alias if one doesn't exist
+                        alias.asname = self.var_map[import_name]
+        
+        return node
+    
+    def visit_Import(self, node):
+        """
+        Handle import statements (import X) to create aliases when needed.
+        Similar to visit_ImportFrom but for 'import X' statements.
+        """
+        if node.names:
+            for alias in node.names:
+                import_name = alias.name
+                
+                # Check if the imported name is obfuscated
+                if import_name in self.var_map and self.var_map[import_name] != import_name:
+                    if not alias.asname:
+                        alias.asname = self.var_map[import_name]
         
         return node
 
