@@ -1097,7 +1097,8 @@ def obfuscate_file(input_file, output_file, bind_machine=False, expiration_days=
         if bind_machine:
             print(f"✅ Machine binding enabled (ID: {machine_id[:16]}...)")
 
-if __name__ == "__main__":
+def main():
+    """CLI entry point for PyProtect (odooprotect on PyPI)."""
     import argparse
 
     parser = argparse.ArgumentParser(description="PyProtect - Python Obfuscator with Machine ID Binding")
@@ -1213,4 +1214,8 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
 

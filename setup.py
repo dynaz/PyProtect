@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Setup script for PyProtect
+Setup script for OdooProtect (PyPI: odooprotect)
 """
 
-from setuptools import setup, find_packages
+from setuptools import setup
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="pyprotect",
+    name="odooprotect",
     version="1.0.0",
     author="PyProtect Team",
     author_email="support@pyprotect.com",
@@ -17,7 +17,8 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/your-repo/pyprotect",
-    packages=find_packages(),
+    license="MIT",
+    py_modules=["pyprotect"],
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
@@ -40,5 +41,10 @@ setup(
         "Bug Reports": "https://github.com/your-repo/pyprotect/issues",
         "Source": "https://github.com/your-repo/pyprotect",
         "Documentation": "https://pyprotect.readthedocs.io/",
+    },
+    entry_points={
+        "console_scripts": [
+            "odooprotect=pyprotect:main",
+        ],
     },
 )
